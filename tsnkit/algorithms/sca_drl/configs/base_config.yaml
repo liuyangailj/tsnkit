@@ -1,0 +1,40 @@
+
+# ==========================================
+# 基础配置 (Base Configuration)
+# 作用: 定义所有阶段通用的环境、拓扑和默认参数
+# ==========================================
+
+project_name: "SCA-DRL"
+seed: 42
+
+# --- 1. 拓扑生成 (通用) ---
+topology:
+  num_nodes: 20
+  min_degree: 2
+  type: "barabasi_albert"  
+  graph_seed: 42
+
+# --- 2. 流量生成 (默认值) ---
+traffic:
+  num_flows: 5             
+  period_list: [1000, 2000, 4000, 8000] 
+  size_range: [64, 1518]   
+  max_delay_tolerance: 2.0 
+
+# --- 3. 路由算法 (通用) ---
+ksp:
+  k: 3                     # 默认 K-Shortest Paths 数量
+
+# --- 4. 环境参数 (通用/默认) ---
+env_params:
+  time_limit: 100
+  bandwidth: 1000
+  max_steps: 100
+  ksp:
+    k: 3
+
+# --- 5. 流属性归一化常数 (默认值) ---
+normalization:
+  max_size: 1500.0      # 最大包长 (Byte)
+  max_period: 10000.0   # 最大周期 (us)
+  max_deadline: 10000.0 # 最大时限 (us)

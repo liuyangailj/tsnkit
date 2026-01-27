@@ -1,0 +1,33 @@
+# ==========================================
+# Phase 2: 强化学习调度 (PPO) 配置
+# 这里的参数会覆盖 base_config.yaml 中的同名参数
+# ==========================================
+
+# --- 覆盖 Base 中的流量设置 ---
+traffic:
+  num_flows: 5             # RL 训练初期从小规模开始
+
+# --- 环境参数 (Environment) ---
+env_params:
+  time_limit: 100
+  bandwidth: 1000          # Mbps
+  max_steps: 100           # Max steps per episode
+  # 环境内部也需要 ksp 参数，复用 base 的 k=3 或在此指定
+  ksp:
+    k: 3
+    
+
+# --- 智能体参数 (PPO Agent) ---
+agent_params:
+  hidden_dim: 64
+  learning_rate: 0.001
+  gamma: 0.99              # 折扣因子
+  eps_clip: 0.2            # PPO clip parameter
+  k_epochs: 4              # PPO update epochs
+
+
+# --- Phase 2 训练流程 ---
+train_phase2:
+  train_episodes: 100
+  max_steps_per_episode: 100
+  update_timestep: 2000    # 每 2000 步更新一次策略

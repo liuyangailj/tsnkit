@@ -1,0 +1,23 @@
+# ==========================================
+# Phase 1: 图划分与 GNN 训练配置
+# 这里的参数会覆盖 base_config.yaml 中的同名参数
+# ==========================================
+
+# --- 覆盖 Base 中的流量设置 ---
+traffic:
+  num_flows: 100           # GNN 训练需要更大规模的流量数据
+  
+# --- 覆盖 Base 中的 KSP 设置 ---
+ksp:
+  k: 5                     # Phase 1 可能需要探索更多路径
+
+# --- GNN 模型参数 ---
+model:
+  gnn_hidden_dim: 64
+  learning_rate: 0.001
+  batch_size: 64
+
+# --- Phase 1 训练流程 ---
+train:
+  epochs: 100
+  save_path: "results/checkpoints/gnn_phase1.pth"
