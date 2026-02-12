@@ -141,6 +141,7 @@ class Stream(int):
         self._src = src
         self._dst = dst[0]
         self._dst_mul = dst
+        # size, period, deadline, jitter都使用T_SLOT进行量子化（Quantize）
         self._size = int(np.ceil(int(size) / T_SLOT))
         self._period = int(np.ceil(int(period) / T_SLOT))
         self._deadline = int(np.ceil(int(deadline) / T_SLOT))

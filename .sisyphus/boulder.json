@@ -1,0 +1,11 @@
+{
+  "active_plan": ".sisyphus/plans/sca-drl-phase1-tsnkit-integration.md",
+  "started_at": "2026-02-05T06:00:58.198Z",
+  "session_ids": ["ses_3d4ac0377ffeCXKqNd1zkixLmc"],
+  "plan_name": "sca-drl-phase1-tsnkit-integration",
+  "progress": {
+    "completed": 0,
+    "total": 4,
+    "current_task": 1
+  }
+}

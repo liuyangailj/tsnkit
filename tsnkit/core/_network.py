@@ -376,24 +376,6 @@ class Network:
     def get_all_path(self, src: FlexNode, dst: FlexNode) -> List["Path"]:
         return self._all_path[self.get_node(src)][self.get_node(dst)]
 
-    # def get_shortest_node_path(self, src, dst):
-    #     return [self.get_node(x) for x in self._shortest_path[src][dst]]
-
-    # def get_shortest_link_path(self, src, dst):
-    #     return [
-    #         self.get_link((x, y))
-    #         for x, y in zip(self._shortest_path[src][dst],
-    #                         self._shortest_path[src][dst][1:])
-    #     ]
-
-    # def get_all_node_path(self, src, dst):
-    #     return [[self.get_node(x) for x in path]
-    #             for path in self._all_path[src][dst]]
-
-    # def get_all_link_path(self, src, dst):
-    #     return [[self.get_link((x, y)) for x, y in zip(path, path[1:])]
-    #             for path in self._all_path[src][dst]]
-
     def add_link(
         self,
     ):

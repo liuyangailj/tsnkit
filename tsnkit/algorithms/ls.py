@@ -14,13 +14,14 @@ from .. import core as utils
 def benchmark(
     name, task_path, net_path, output_path="./", workers=1
 ) -> utils.Statistics:
+    """标准测试接口"""
     stat = utils.Statistics(name)  ## Init empty stat
     try:
         ## Change _Method to your method class
-        test = ls(workers)  # type: ignore
+        test = ls(workers)  # type: ignore  实例化具体算法类
         test.init(task_path, net_path)
         test.prepare()
-        stat = test.solve()  ## Update stat
+        stat = test.solve()  ## Update stat 
         if stat.result == utils.Result.schedulable:
             test.output().to_csv(name, output_path)
             pass
@@ -44,8 +45,9 @@ class ls:
     def init(self, task_path: str, net_path: str) -> None:
         self.task = utils.load_stream(task_path)
         self.net = utils.load_network(net_path)
-
+        # 获取流从源到端的所有路由路径
         self.task_routes = {s: self.net.get_all_path(s.src, s.dst) for s in self.task}
+        # 流排序
         self.task_order = sorted(
             self.task.streams,
             key=lambda x: max(
@@ -95,6 +97,7 @@ class ls:
         return config
 
     @staticmethod
+    # 冲突检测器（静态方法）
     def match_time(t, sche) -> int:
         """Find the index of entry that starts just before t
 
@@ -107,11 +110,12 @@ class ls:
         """
         if not sche:
             return -1
-        gate_time = [x[0] for x in sche]
-        left = 0
+        gate_time = [x[0] for x in sche] # 获取所有的开门时间
+        # 初始化整个搜索范围，后续查找中会更新这个范围。
+        left = 0 
         right = len(gate_time) - 1
 
-        if gate_time[right] <= t < sche[-1][1]:
+        if gate_time[right] <= t < sche[-1][1]: # -1表示字典或列表中最后一个元素
             return right
         elif sche[-1][1] <= t:
             return -2
