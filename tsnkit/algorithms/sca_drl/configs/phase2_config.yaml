@@ -1,33 +1,40 @@
-# ==========================================
-# Phase 2: 强化学习调度 (PPO) 配置
-# 这里的参数会覆盖 base_config.yaml 中的同名参数
-# ==========================================
+# ============================================
+# SCA-DRL Phase 2: Transformer-PPO 联合路由调度
+# ============================================
 
-# --- 覆盖 Base 中的流量设置 ---
-traffic:
-  num_flows: 5             # RL 训练初期从小规模开始
+seed: 42
 
-# --- 环境参数 (Environment) ---
-env_params:
-  time_limit: 100
-  bandwidth: 1000          # Mbps
-  max_steps: 100           # Max steps per episode
-  # 环境内部也需要 ksp 参数，复用 base 的 k=3 或在此指定
-  ksp:
-    k: 3
-    
+data:
+  task_file: "data/data_storm/1_task.csv"
+  topo_file: "data/data_storm/1_topo.csv"
+  # Phase 1 输出，作为 Phase 2 输入
+  phase1_groups_csv: "results/phase1_groups.csv"
+  phase1_embeddings_pt: "results/phase1_embeddings.pt"
 
-# --- 智能体参数 (PPO Agent) ---
-agent_params:
-  hidden_dim: 64
-  learning_rate: 0.001
-  gamma: 0.99              # 折扣因子
-  eps_clip: 0.2            # PPO clip parameter
-  k_epochs: 4              # PPO update epochs
+environment:
+  k_max: 3                    # 每条流最大候选路径数
+  max_steps_per_episode: 200  # 单 episode 最大步数
+  reward:
+    success: 10.0             # 成功调度一条流的奖励
+    failure: -5.0             # 调度失败的惩罚
+    completion_bonus: 50.0    # 全部流调度完成的额外奖励
 
+agent:
+  transformer:
+    d_model: 64
+    nhead: 4
+    num_layers: 2
+    d_ff: 128                 # FFN 中间层维度
+    dropout: 0.1
+  ppo:
+    learning_rate: 0.0003
+    gamma: 0.99               # 折扣因子
+    eps_clip: 0.2             # PPO clip 范围
+    k_epochs: 4               # 每次更新的 epoch 数
+    entropy_coef: 0.01        # 熵正则系数
 
-# --- Phase 2 训练流程 ---
-train_phase2:
-  train_episodes: 100
-  max_steps_per_episode: 100
-  update_timestep: 2000    # 每 2000 步更新一次策略
+training:
+  num_episodes: 5000
+  log_interval: 50            # 每 N episode 打印一次
+  save_interval: 500          # 每 N episode 保存一次 checkpoint
+  checkpoint_path: "models/phase2_ppo.pth"

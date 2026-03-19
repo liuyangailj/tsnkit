@@ -1,291 +1,198 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Data, Dataset
-from torch_geometric.nn import GATConv, global_mean_pool
-from torch_geometric.loader import DataLoader
+from torch_geometric.nn import GATConv
 import numpy as np
 import networkx as nx
 import math
 from itertools import islice
 
-# --- 引入 TSNKit 核心 ---
-# 这是整个数据集构建的基础，保证读取逻辑与 benchmark 完全一致
+# 引入 TSNKit 核心
 from tsnkit import core as utils
 
 # ==========================================
-# 1. 工具函数 (KSP & Harmonic Prior)
+# 1. 工具函数
 # ==========================================
-
 def k_shortest_paths(G, source, target, k, weight=None):
-    """
-    基于 NetworkX 计算 K 条最短路径。
-    注意：TSNKit 的 _network.py 中 get_all_path 使用的是 all_simple_paths。
-    为了限制 Phase 1 的搜索空间并提供多样性选择，这里使用 K-Shortest Paths。
-    """
+    """基于 NetworkX 计算 K 条最短路径。"""
     try:
-        # islice 用于从生成器中提取前 k 个结果，避免计算所有路径
         return list(islice(nx.shortest_simple_paths(G, source, target, weight=weight), k))
     except nx.NetworkXNoPath:
         return []
 
 def calculate_harmonic_prior(period_i, period_j):
-    """
-    计算两个流周期的谐波亲和度 (Harmonic Prior)
-    公式: s_prior = GCD(Ti, Tj) / LCM(Ti, Tj)
-    这个值反映了两个周期性流在时域上的重叠频率。
-    """
-    if period_i == 0 or period_j == 0: return 0.0
-    gcd_val = math.gcd(period_i, period_j)
-    lcm_val = (period_i * period_j) // gcd_val
-    return float(gcd_val) / float(lcm_val)
+    """计算两个流周期的谐波先验 (仅在推理阶段使用)"""
+    gcd = math.gcd(int(period_i), int(period_j))
+    lcm = (int(period_i) * int(period_j)) // gcd
+    return gcd / lcm
 
 # ==========================================
-# 2. Dataset: 深度对接 TSNKit 的数据处理
+# 2. 数据集构建 (TSNPhase1Dataset)
 # ==========================================
-
 class TSNPhase1Dataset(Dataset):
-    def __init__(self, task_path, topo_path, config=None):
-        """
-        Args:
-            task_path: tsnkit 格式的流量 csv 路径
-            topo_path: tsnkit 格式的拓扑 csv 路径
-            config: 配置字典，包含 'k_paths' 等超参数
-        """
-        # 不调用 super().__init__() 以避免 PyG Dataset 的自动处理
-        # 手动初始化 Dataset 的必要属性
+    def __init__(self, task_path, topo_path, k_paths=3, edge_metric="kpair_prob"):
         self.task_path = task_path
         self.topo_path = topo_path
-        self.config = config or {}
-        self.k = self.config.get('k_paths', 3)  # 默认 K=3
+        self.k_paths = k_paths
+        self.edge_metric = edge_metric
+        super().__init__(root=None, transform=None, pre_transform=None)
+        self.data = self.process_data()
 
-        # PyG Dataset 必要的属性
-        self.transform = None
-        self.pre_transform = None
-        self.pre_filter = None
-
-        # 结果缓存
-        self.data_list = []
-
-        # 执行处理
-        self.process()
-
-    def __len__(self):
-        return len(self.data_list)
-
-    def __getitem__(self, idx):
-        return self.data_list[idx]
-
-    def process(self):
+    def process_data(self):
         print(f"[Phase1] Loading TSNKit data from {self.task_path}...")
         
-        # --- 1. 使用 TSNKit 原生加载器 (核心一致性保证) ---
+        # 1. 使用 TSNKit 原生加载器
         try:
-            # load_network 返回 tsnkit.core._network.Network 对象
             tsn_net = utils.load_network(self.topo_path)
-            # load_stream 返回 tsnkit.core._stream.StreamSet 对象
             tsn_tasks = utils.load_stream(self.task_path)
         except Exception as e:
             print(f"[Error] Failed to load files using tsnkit: {e}")
-            return
+            raise e
 
-        # 获取 NetworkX 图对象 (tsnkit 内部维护了 .net_nx 属性)
+        # 获取 NetworkX 图对象和流列表
         G_nx = tsn_net.net_nx
-        
-        # 获取所有流对象列表
         streams = tsn_tasks.streams
         num_streams = len(streams)
         
         print(f"[Phase1] Processing {num_streams} streams for Conflict Graph...")
 
-        # --- 2. 构建节点特征 (Node Features) ---
-        # 这里的“节点”指的是冲突图中的节点，即每一条“流”
-        node_features = []
-        stream_paths_links = [] # 存储每条流的 K 条路径对应的链路集合，用于检测冲突
+        x_list = []
+        stream_ids = []
+        stream_paths_links = [] # 存储每条流的 K 条候选路径的链路集合 list[list[set]]
 
+        # 2. 提取节点特征并预计算 KSP
         for s in streams:
-            # 提取特征
-            # 注意：依据 tsnkit/_stream.py，这些属性已经被归一化（除以 T_SLOT）
-            # s.size: 占用的数据块数量 (chunk units)
-            # s.period: 周期 (slots)
-            # s.deadline: 截止时间 (slots)
-            
-            # 我们直接使用这些归一化后的值，因为它们代表了系统视角下的真实资源需求
-            # 对 period 进行 log 处理以压缩数值范围，便于神经网络学习
-            feat = [
-                float(s.size), 
-                math.log(float(s.period) + 1), 
-                math.log(float(s.deadline) + 1)
-            ]
-            node_features.append(feat)
-            
-            # 路径计算
-            # tsnkit 支持多播，dst 是一个列表。Phase 1 简化处理，暂时只取第一个目的节点作为单播路径计算
-            # 这种处理方式与 ls.py 中的处理逻辑兼容
+            # 兼容单个目的节点或多播(多目的节点)的情况
             target_node = s.dst[0] if isinstance(s.dst, list) else s.dst
+            # 获取 stream 的唯一标识
+            s_id = s.name if hasattr(s, 'name') else s._id
+            stream_ids.append(s_id)
             
-            # 利用 tsnkit 加载的图计算 K 条最短路径
-            paths = k_shortest_paths(G_nx, s.src, target_node, self.k)
+            # 节点特征: [size, log(period+1), log(deadline+1)]
+            x_list.append([
+                s.size, 
+                math.log(s.period + 1), 
+                math.log(s.deadline + 1)
+            ])
             
-            # 将路径转换为“链路集合”以便快速进行集合求交运算
-            # path: [n1, n2, n3] -> links: {(n1,n2), (n2,n3)}
-            s_links_set = set()
-            for p in paths:
-                # 生成路径上的所有边 (u, v)
-                edges = list(zip(p[:-1], p[1:]))
-                s_links_set.update(edges)
-            stream_paths_links.append(s_links_set)
+            # 计算 K 条最短路径
+            paths = k_shortest_paths(G_nx, s.src, target_node, self.k_paths)
+            # 转换为链路的集合
+            path_sets = [set(zip(p[:-1], p[1:])) for p in paths if len(p) >= 2]
+            stream_paths_links.append(path_sets)
 
-        # 转换为 Tensor
-        x = torch.tensor(node_features, dtype=torch.float)
+        x = torch.tensor(x_list, dtype=torch.float)
+        # 特征归一化
+        x = (x - x.mean(dim=0, keepdim=True)) / (x.std(dim=0, keepdim=True) + 1e-6)
 
-        # --- 3. 构建边和边属性 (Edges & Edge Attributes) ---
-        # 核心逻辑：构建“流冲突图”
-        # 节点 = 流
-        # 边 = 两条流在空间上（K条路径中）存在潜在的链路争用
-        
+        # 3. 构建流冲突图 (计算 e_ij)
         edge_index = []
         edge_attr = []
 
-        # 双重循环检测每对流 (Pairwise Check) O(N^2)
         for i in range(num_streams):
             for j in range(i + 1, num_streams):
-                # A. 空间相关性 (Spatial Correlation)
-                # 检查两个流的候选路径集合是否有交集
-                if not stream_paths_links[i].isdisjoint(stream_paths_links[j]):
-                    # 如果有重叠链路，说明存在潜在冲突，建立边
+                paths_i = stream_paths_links[i]
+                paths_j = stream_paths_links[j]
+                
+                K_i = len(paths_i)
+                K_j = len(paths_j)
+                if K_i == 0 or K_j == 0:
+                    continue
+                
+                # 计算 K * K 组合的链路重叠次数
+                overlap_count = 0
+                for p_i in paths_i:
+                    for p_j in paths_j:
+                        # 优化：使用 isdisjoint 检测交集，速度更快
+                        if not p_i.isdisjoint(p_j):
+                            overlap_count += 1
+                
+                e_ij = overlap_count / (K_i * K_j)
+                
+                if e_ij > 0:
                     edge_index.append([i, j])
-                    edge_index.append([j, i]) # 无向图，双向添加
-                    
-                    # B. 时间相关性 (Temporal Prior / Harmonic)
-                    # 计算谐波先验作为边权重
-                    prior = calculate_harmonic_prior(streams[i].period, streams[j].period)
-                    edge_attr.append([prior])
-                    edge_attr.append([prior])
+                    edge_index.append([j, i])
+                    edge_attr.append([e_ij])
+                    edge_attr.append([e_ij])
 
-        # 转换为 Tensor 格式
-        if len(edge_index) > 0:
-            # 1. 列表转Tensor: 此时形状[E, 2]
-            # 2. .t(): 转置为[2, E](PyG标准格式： source_nodes在第一行， targets_nodes在第二行)
-            # 3. .contigous(): 确保内存连续，加速后续 GAT 运算。
-            # 4. dtype=torch.long: 索引必须是整数类型
-            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-            
-            # 边属性保持 [E, 1] 形状，浮点数类型
-            edge_attr = torch.tensor(edge_attr, dtype=torch.float)
-        else:
-            # 处理无边的情况（例如流之间完全无冲突）
-            edge_index = torch.empty((2, 0), dtype=torch.long)
-            edge_attr = torch.empty((0, 1), dtype=torch.float)
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous() if edge_index else torch.empty((2, 0), dtype=torch.long)
+        edge_attr = torch.tensor(edge_attr, dtype=torch.float) if edge_attr else torch.empty((0, 1), dtype=torch.float)
 
-        # --- 4. 封装 PyG Data 对象 ---
-        # Data 对象是一个容器，它不改变内部 Tensor 的形状
-        # x: [N, 3]
-        # edge_index: [2, E]
-        # edge_attr: [E, 1]
         data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-        data.num_nodes = num_streams
-        
-        # 保存辅助信息，方便后续推理时映射回 stream ID
-        data.stream_ids = [s._id for s in streams]
-        
-        # 将 Data 放入列表 (PyG Dataset 规范)
-        self.data_list = [data]
-        
-        print(f"[Phase1] Graph Created: Nodes(Streams)={x.shape[0]}, Conflict Edges={edge_index.shape[1]}")
+        data.stream_ids = stream_ids
+        data.streams = streams # 保存流对象，供后续谐波先验计算
+        return data
+
+    def len(self):
+        return 1
+
+    def get(self, idx):
+        return self.data
 
 # ==========================================
-# 3. GNN Model: 冲突图嵌入模型
+# 3. GAT 模型定义
 # ==========================================
-
 class GNNPartitionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim=16):
-        super(GNNPartitionModel, self).__init__()
-        # GATConv (Graph Attention Network)
-        # edge_dim=1 允许我们将 harmonic prior (edge_attr) 注入到注意力机制中
-        self.conv1 = GATConv(input_dim, hidden_dim, edge_dim=1) 
-        self.conv2 = GATConv(hidden_dim, hidden_dim, edge_dim=1)
-        
-        # 输出层：生成每个流的 Embedding
-        self.lin = nn.Linear(hidden_dim, output_dim)
-        
-        # 输入归一化，加速收敛
-        self.input_bn = nn.BatchNorm1d(input_dim)
+    def __init__(self, input_dim, hidden_dim, output_dim, heads=4):
+        super().__init__()
+        # edge_dim=1 表示显式注入单维度的 e_ij 到注意力机制
+        self.conv1 = GATConv(input_dim, hidden_dim, heads=heads, edge_dim=1, concat=True)
+        self.conv2 = GATConv(hidden_dim * heads, output_dim, heads=1, edge_dim=1, concat=False)
 
     def forward(self, data):
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-        
-        x = self.input_bn(x)
-        
-        # Layer 1
-        x = F.elu(self.conv1(x, edge_index, edge_attr=edge_attr))
-        x = F.dropout(x, p=0.2, training=self.training)
-        
-        # Layer 2
-        x = self.conv2(x, edge_index, edge_attr=edge_attr)
-        
-        # Final Embedding
-        embedding = self.lin(x) 
-        
-        return embedding
+        x = F.elu(self.conv1(x, edge_index, edge_attr))
+        x = self.conv2(x, edge_index, edge_attr)
+        return x  # 返回 Embedding: u_i
 
 # ==========================================
-# 4. Trainer Function
+# 4. 训练函数 (自监督拓扑重构)
 # ==========================================
-
-def train_phase1(model, dataset, config, device):
-    loader = DataLoader(dataset, batch_size=1, shuffle=True)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.get('lr', 0.001))
+def train_phase1(model, data, optimizer, epochs=100, device='cpu'):
     model.train()
-    
-    print("--- Start Training Phase 1 ---")
-    for epoch in range(config.get('epochs', 100)):
-        total_loss = 0
-        for data in loader:
-            data = data.to(device)
-            optimizer.zero_grad()
-            
-            embeddings = model(data)
-            
-            # --- Contrastive Loss 实现 ---
-            # 目标：根据冲突关系和谐波先验优化 Embedding 分布
-            # 白皮书指导: W_ij = alpha * s_gnn + (1-alpha) * s_prior
-            # s_gnn 是 embedding 的相似度
-            
-            if data.edge_index.numel() > 0:
-                src, dst = data.edge_index
-                
-                # 1. 计算 Embedding 相似度 (s_gnn)
-                # 使用余弦相似度，范围 [-1, 1]
-                s_gnn = F.cosine_similarity(embeddings[src], embeddings[dst])
-                
-                # 2. 获取对应的 Harmonic Prior (s_prior)
-                # edge_attr 范围 [0, 1]
-                s_prior = data.edge_attr.squeeze()
-                
-                # 3. 定义训练目标 (Proxy Task)
-                # 我们希望 s_gnn 能够捕捉到 s_prior 反映的物理规律
-                # 即：若 s_prior 高（谐波相关强），则 embedding 应更相似（s_gnn 接近 1）
-                # 这样后续聚类时它们会被分到一组，从而便于对齐
-                
-                # 简单的 MSE Loss 逼近
-                loss = F.mse_loss(s_gnn, s_prior)
-                
-                # 进阶 Loss (可选): 结合对比损失，推开 s_prior 低的节点
-                # neg_mask = s_prior < 0.1
-                # loss += 0.5 * torch.mean(torch.clamp(s_gnn[neg_mask] - (-1), min=0)) 
-                
-            else:
-                loss = torch.tensor(0.0, requires_grad=True).to(device)
+    data = data.to(device)
+    num_nodes = data.num_nodes
 
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        embeddings = model(data)
+        
+        if data.edge_index.numel() > 0:
+            src, dst = data.edge_index
             
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch}, Loss: {total_loss:.4f}")
-    
-    # 保存模型
-    save_path = config.get('save_path', './gnn_phase1.pth')
-    torch.save(model.state_dict(), save_path)
-    print(f"Model saved to {save_path}")
+            # 1. 正样本 Loss (物理连边的 e_ij)
+            u_src, u_dst = embeddings[src], embeddings[dst]
+            # 余弦相似度映射到 [0, 1]
+            sim_pos = (F.cosine_similarity(u_src, u_dst) + 1.0) / 2.0
+            # 新增：防止浮点数越界和log(0)问题的inf异常
+            sim_pos = torch.clamp(sim_pos, min=1e-7, max=1.0 - 1e-6)
+            
+            e_ij = data.edge_attr.squeeze()
+            # 目标是重构拓扑概率
+            loss_pos = F.binary_cross_entropy(sim_pos, e_ij)
+            
+            # 2. 负采样 Loss (推开不冲突的流)
+            num_neg = src.size(0) // 2  # 负采样比例可调
+            neg_src = torch.randint(0, num_nodes, (num_neg,), device=device)
+            neg_dst = torch.randint(0, num_nodes, (num_neg,), device=device)
+            
+            u_neg_src, u_neg_dst = embeddings[neg_src], embeddings[neg_dst]
+            sim_neg = (F.cosine_similarity(u_neg_src, u_neg_dst) + 1.0) / 2.0
+            
+            # 新增：防止浮点数越界和log(0)问题的inf异常
+            sim_neg = torch.clamp(sim_neg, min=1e-7, max=1.0 - 1e-7)
+            
+            # 负样本的目标相似度为 0
+            loss_neg = F.binary_cross_entropy(sim_neg, torch.zeros_like(sim_neg))
+            
+            loss = loss_pos + loss_neg
+        else:
+            loss = torch.tensor(0.0, requires_grad=True, device=device)
+            
+        loss.backward()
+        optimizer.step()
+        
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch+1:03d}/{epochs:03d} | Loss: {loss.item():.4f} (Pos: {loss_pos.item():.4f}, Neg: {loss_neg.item():.4f})")
