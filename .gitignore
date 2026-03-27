@@ -23,6 +23,9 @@ data_storm/
 *.pt
 *.pth
 
+build/
+dist/
+
 # 在 .gitignore 里写入：
 
 # 1. 屏蔽一切
