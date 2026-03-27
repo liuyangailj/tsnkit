@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "🐛 Debug: Phase2 Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}", 
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            // 🌟 核心秘籍：强制指定程序运行时的工作目录为你当前打开文件的所在目录
+            "cwd": "${fileDirname}" 
+        }
+    ]
+}

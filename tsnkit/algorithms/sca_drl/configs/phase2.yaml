@@ -1,0 +1,46 @@
+# ============================================
+# SCA-DRL Phase 2: Transformer-PPO 联合路由调度
+# ============================================
+
+seed: 42
+
+data:
+  task_file: "data/data_storm/1_task.csv"
+  topo_file: "data/data_storm/0_topo.csv"
+  task_dir: "data/data_storm/"  # 存放每条流的特征文件夹
+  # Phase 1 输出，作为 Phase 2 输入
+  phase1_groups_csv: "results/phase1_groups.csv"
+  phase1_embeddings_pt: "results/phase1_embeddings.pt"
+
+environment:
+  max_flows: 130              # 为了统一维度设置的流数量上限
+  k_max: 5                    # 每条流最大候选路径数
+  max_steps_per_episode: 200  # 单 episode 最大步数
+  reward:
+    all_success: 10.0        # omega_0全部流调度完成的奖励
+    one_success: 1.0         # omega_1成功调度一条流的基础奖励
+    hop_penalty: 0.05        # omega_2跳数惩罚系数
+    util_penalty: 0.5        # omega_3链路利用率惩罚系数
+    failure_penalty: 0.0     # omega_4调度失败的惩罚
+
+agent:
+  transformer:
+    d_model: 64
+    nhead: 4
+    num_layers: 2
+    d_ff: 128                 # FFN 中间层维度
+    dropout: 0.1
+  ppo:
+    learning_rate: 0.0003
+    gamma: 0.99               # 折扣因子
+    eps_clip: 0.2             # PPO clip 范围
+    k_epochs: 4               # 每次更新的 epoch 数
+    entropy_coef: 0.01        # 熵正则系数
+
+training:
+  num_episodes: 5000
+  log_interval: 50            # 每 N episode 打印一次
+  save_interval: 500          # 每 N episode 保存一次 checkpoint
+  total_iterations: 200       # 总训练轮数（每轮收集 episodes_per_iter 份考卷）
+  episodes_per_iter: 8        # 每轮收集的 episode 数量（考卷数量），过多可能内存压力大，过少可能学习不稳定
+  checkpoint_path: "models/phase2_ppo.pth"

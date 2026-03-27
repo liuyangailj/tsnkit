@@ -1,0 +1,34 @@
+# ============================================
+# SCA-DRL Phase 1: GAT 流相似度学习 & 谱聚类分组
+# ============================================
+
+seed: 42
+
+data:  
+  topo_file: "data/data_storm/0_topo.csv"   # 相对于 sca_drl/，包含链路信息的拓扑文件
+  task_dir: "data/data_storm/"              # 相对于 sca_drl/
+  task_pattern: "*_task.csv"                # 任务文件的模式
+  val_pattern: "val_*_task.csv"             # 验证集文件的模式
+  k_paths: 3                                # 每条流的 K 最短路径数
+
+model:
+  input_dim: 3          # 节点特征维度 [size, log(period), log(deadline)]
+  hidden_dim: 16        # GAT 隐藏层维度
+  output_dim: 16        # 输出 embedding 维度
+  heads: 4              # 第一层注意力头数
+
+training:
+  learning_rate: 0.005
+  n_epochs: 50  # 
+  batch_size: 8                       # 每个batch包含几张冲突图  
+  neg_sample_ratio: 0.5               # 负采样数 = 正样本边数 × ratio
+  checkpoint_path: "models/phase1_gat.pth"
+
+inference:
+  checkpoint_path: "models/phase1_gat.pth"    # 与 training 保持一致
+  task_file: "data/data_storm/1_task.csv"     # 推理同单独的测试集
+  n_clusters: 4                                # 谱聚类分组数
+  alpha: 0.6                                   # W_ij = α·s_gnn + (1-α)·s_prior
+  output:
+    groups_csv: "results/phase1_groups.csv"
+    embeddings_pt: "results/phase1_embeddings.pt"
