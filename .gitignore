@@ -23,17 +23,3 @@ data_storm/
 *.pt
 *.pth
 
-build/
-dist/
-
-# 在 .gitignore 里写入：
-
-# 1. 屏蔽一切
-*
-
-# 2. 豁免你自己的代码文件夹 (注意开头的感叹号表示“不屏蔽”)
-!tsnkit/algorithms/sca_drl/
-!tsnkit/algorithms/sca_drl/**
-
-# 3. 豁免必需的 Git 文件
-!.gitignore
