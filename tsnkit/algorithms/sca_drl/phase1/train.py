@@ -154,7 +154,7 @@ def main(config: dict):
     
     # 训练集
     train_files = resolve_task_files(data_cfg, key="task_pattern")
-    train_dataset = MultiInstanceDataset(train_files, topo_path, k_paths)
+    train_dataset = MultiInstanceDataset(train_files, topo_path, k_paths, cache_name="train")
     train_loader = DataLoader(
         train_dataset, 
         batch_size=train_cfg.get("batch_size", 8), 
@@ -168,7 +168,7 @@ def main(config: dict):
         val_dir = resolve_path(data_cfg["task_dir"])
         val_files = sorted(glob.glob(os.path.join(val_dir, val_pattern)))
         if val_files:
-             val_dataset = MultiInstanceDataset(val_files, topo_path, k_paths)
+             val_dataset = MultiInstanceDataset(val_files, topo_path, k_paths, cache_name="val")
              val_loader = DataLoader(val_dataset, batch_size=train_cfg.get("batch_size", 8))
              print(f"Validation set: {len(val_files)} graphs")
 

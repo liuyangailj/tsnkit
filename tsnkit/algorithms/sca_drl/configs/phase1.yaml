@@ -7,7 +7,7 @@ seed: 42
 data:  
   topo_file: "data/data_storm/0_topo.csv"   # 相对于 sca_drl/，包含链路信息的拓扑文件
   task_dir: "data/data_storm/"              # 相对于 sca_drl/
-  task_pattern: "*_task.csv"                # 任务文件的模式
+  task_pattern: "[0-9]*_task.csv"                # 任务文件的模式
   val_pattern: "val_*_task.csv"             # 验证集文件的模式
   k_paths: 3                                # 每条流的 K 最短路径数
 

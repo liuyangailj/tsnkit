@@ -150,12 +150,31 @@ class MultiInstanceDataset(Dataset):
         k_paths: K 最短路径数
     """
 
-    def __init__(self, task_files, topo_path, k_paths=3):
-        self.task_files = task_files
-        self.topo_path = topo_path
-        self.k_paths = k_paths
-        super().__init__(root=None, transform=None, pre_transform=None)
-        self._graphs = self._build_all_graphs()
+    def __init__(self, task_files, topo_path, k_paths=3, cache_name="dataset"):
+            self.task_files = task_files
+            self.topo_path = topo_path
+            self.k_paths = k_paths
+            
+            # 🌟 核心提速秘籍：构建缓存文件路径
+            if len(task_files) > 0:
+                data_dir = os.path.dirname(task_files[0])
+                # 根据文件数量和名字生成独一无二的缓存名，防止冲突
+                self.cache_path = os.path.join(data_dir, f"{cache_name}_{len(task_files)}_k{k_paths}.pt")
+            else:
+                self.cache_path = None
+
+            super().__init__(root=None, transform=None, pre_transform=None)
+            
+            # 🌟 拦截器：如果硬盘上已经有了存好的图，直接秒读！
+            if self.cache_path and os.path.exists(self.cache_path):
+                print(f"⚡ [极速缓存] 瞬间加载 {len(task_files)} 份图数据: {os.path.basename(self.cache_path)}")
+                self._graphs = torch.load(self.cache_path, weights_only=False)
+            else:
+                # 只有第一次运行，或者你删了缓存文件，才会乖乖去算
+                self._graphs = self._build_all_graphs()
+                if self.cache_path:
+                    print(f"💾 [固化数据] 正在将处理好的图数据写入硬盘，下次秒开: {os.path.basename(self.cache_path)}")
+                    torch.save(self._graphs, self.cache_path)
 
     def _build_all_graphs(self):
         graphs = []

@@ -3,7 +3,7 @@ import pandas as pd
 import networkx as nx
 import random
     
-def generate_industrial_dataset(num_tasks=100, save_dir="data_storm"):
+def generate_industrial_dataset(num_tasks, save_dir="data_storm"):
     os.makedirs(save_dir, exist_ok=True)
     
     # =========================================================
@@ -67,6 +67,8 @@ def generate_industrial_dataset(num_tasks=100, save_dir="data_storm"):
     edge_es_nodes = [n for n in es_nodes if n not in core_es_nodes]    
 
     print(f"🌪️ 正在生成 {num_tasks} 份高压任务考卷...")       
+    all_generated_tasks = [] # 用于暂存所有卷子
+    
     for task_id in range(1, num_tasks + 1):
         # 为了让模型学会适应不同数量的流，我们在 MIN_FLOWS 到 MAX_FLOWS 之间随机抽取
         num_flows = random.randint(MIN_FLOWS,MAX_FLOWS) 
@@ -104,13 +106,39 @@ def generate_industrial_dataset(num_tasks=100, save_dir="data_storm"):
                 'deadline': period, # Deadline 默认等于周期
                 'jitter': period
             })
-            
-        task_df = pd.DataFrame(task_data)
-        task_path = os.path.join(save_dir, f"{task_id}_task.csv")
-        task_df.to_csv(task_path, index=False)
+        
+        # 不直接存盘，而是打包放进列表
+        all_generated_tasks.append({
+            'num_flows': num_flows, 
+            'data': task_data})
     
-    print(f"🎉 成功生成 {num_tasks} 份多路径拥塞测试数据！全部保存在 {save_dir}/ 目录下。")
-    print(f"👉 【最大流数量】 (MAX_FLOWS): {MAX_FLOWS}")
+    # =========================================================
+    # 🌟 3. 核心大招：按难度排序并执行 8:1:1 分层切分！
+    # =========================================================
+    print("⚖️ 正在执行严谨的难度分层切分 (Stratified Split 8:1:1)...")
+    # 3.1 按照流数量排序
+    all_generated_tasks.sort(key=lambda x: x['num_flows'])
+    # 3.2 切分为训练集、验证集、测试集
+    train_count, val_count, test_count = 0, 0, 0
+    
+    for i, task_bundle in enumerate(all_generated_tasks):
+        mol_val = i % 10
+        if mol_val < 8:
+            prefix = ""
+            train_count += 1
+        elif mol_val == 8:
+            prefix = "val_"
+            val_count += 1
+        else:
+            prefix = "test_"
+            test_count += 1
+            
+        file_name = f"{prefix}{i+1}_task.csv"
+        pd.DataFrame(task_bundle['data']).to_csv(os.path.join(save_dir, file_name), index=False)
+    
+    print(f"✅ 完美切分完毕！生成了 {train_count} 份训练集，{val_count} 份验证集，{test_count} 份测试集。")
+    print("📈 它们的难度分布已经达到了统计学上的完全一致！")
 
 if __name__ == "__main__":
-    generate_industrial_dataset()
+    # 建议至少生成 500 份，这样验证集和测试集各有 50 份，大数定律生效！
+    generate_industrial_dataset(num_tasks=500)
