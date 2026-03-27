@@ -1,3 +1,5 @@
+import os
+import pandas as pd
 import numpy as np
 import collections
 import gymnasium as gym
@@ -161,12 +163,11 @@ class TSNEnv(gym.Env):
         })
                 
         # 加载初始任务
-        self.load_new_task(env_config['task'])
+        # self.load_new_task(env_config['task'])
+        self.load_new_task(env_config['task'], env_config.get('task_file'))
         
-    def load_new_task(self, task):
-        """
-        动态更换考卷的接口。用于 Stage 2 训练。
-        """
+    def load_new_task(self, task, task_file_path=None):
+        """动态更换考卷，并读取 Phase 1 的分组标签"""
         self.task = task
         self.flows = self.task.streams
         
@@ -184,6 +185,27 @@ class TSNEnv(gym.Env):
         self.max_size = max([f.size for f in self.flows]) if self.flows else 1.0
         self.max_deadline = max([f.deadline for f in self.flows]) if self.flows else 1.0
         self.max_hops = len(self.topo.nodes)
+        
+        # 🌟 新增：读取教导主任的分组表
+        self.flow_groups = {} # 字典: {流ID: 组号}
+        if task_file_path is not None:
+            group_csv_path = task_file_path.replace(".csv", "_group.csv")
+            if os.path.exists(group_csv_path):
+                df_group = pd.read_csv(group_csv_path)
+                # 假设 csv 里有 'stream_id' 和 'group_id' 两列
+                for _, row in df_group.iterrows():
+                    self.flow_groups[str(row['stream_id'])] = int(row['group_id'])
+            else:
+                print(f"⚠️ 未找到分组表 {group_csv_path}，所有流默认归为 0 组！")
+                
+        # 🌟 2. 新增：动态读取这张考卷专属的 Embedding 特征
+        self.phase1_embeddings = {}
+        if task_file_path is not None:
+            emb_pt_path = task_file_path.replace(".csv", "_emb.pt")
+            if os.path.exists(emb_pt_path):
+                # 读入这套卷子专属的 16 维特征字典 {sid: tensor}
+                self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
+    
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -348,9 +370,27 @@ class TSNEnv(gym.Env):
         # 动作空间大小是 num_flows * K_MAX
         action_mask = np.zeros(self.MAX_FLOWS * self.K_MAX, dtype=np.bool_)
         
-        for i in range(self.num_flows):
-            if self.flow_states[i]['status'] == 1: # 只有待调度的流才能选
+        # 🌟 1. 动态探测当前活跃组别
+        # pending_flows 之前已经在上面算过了：pending_flows = [i for i in range(self.num_flows) if self.flow_states[i]['status'] == 1]
+        current_active_group = 0
+        if pending_flows:
+            # 找到所有待排流的所属组，取最小的那个作为当前活动组
+            active_groups = []
+            for i in pending_flows:
                 f = self.flows[i]
+                sid = getattr(f, 'name', str(getattr(f, 'id', i)))
+                active_groups.append(self.flow_groups.get(sid, 0)) # 查不到默认给 0
+            current_active_group = min(active_groups)
+        
+        # 🌟 2. 实施三重门禁    
+        for i in range(self.num_flows):
+            f = self.flows[i]
+            sid = getattr(f, 'name', str(getattr(f, 'id', i)))
+            my_group = self.flow_groups.get(sid, 0)
+            
+            # 三重门禁：只有 status=1 的流，且属于当前活动组，才能被考虑；其他一律屏蔽
+            
+            if self.flow_states[i]['status'] == 1 and my_group == current_active_group: # 只有待调度的流才能选
                 routes = self.physics_engine.task_routes[f]
                 num_valid_paths = min(len(routes), self.K_MAX)
                 
