@@ -76,8 +76,8 @@ def train(config):
    
     # MLOps 配置
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')    
-    run_dir = resolve_path(f"./runs/phase2_ppo_{current_time}")
-    model_dir = resolve_path(f"./models/phase2_{current_time}")
+    run_dir = resolve_path(f"./phase2/runs/phase2_ppo_{current_time}")
+    model_dir = resolve_path(f"./phase2/models/phase2_{current_time}")
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
     
