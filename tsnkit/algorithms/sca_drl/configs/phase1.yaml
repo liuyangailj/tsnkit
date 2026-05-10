@@ -29,6 +29,7 @@ inference:
   task_file: "data/data_storm/1_task.csv"     # 推理同单独的测试集
   n_clusters: 4                                # 谱聚类分组数
   alpha: 0.6                                   # W_ij = α·s_gnn + (1-α)·s_prior
-  output:
-    groups_csv: "results/phase1_groups.csv"
-    embeddings_pt: "results/phase1_embeddings.pt"
+  
+  # output:
+  #   groups_csv: "results/phase1_groups.csv"      
+  #   embeddings_pt: "results/phase1_embeddings.pt"

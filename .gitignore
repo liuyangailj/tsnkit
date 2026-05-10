@@ -23,3 +23,7 @@ data_storm/
 *.pt
 *.pth
 
+# 代码导出工具（不纳入版本控制）
+**/export_code_to_md.py
+**/Project_Code_Context.md
+

@@ -19,17 +19,17 @@ from sca_drl.common.utils import (
     set_seed, load_config, resolve_path, get_device, ensure_dir
 )
 
-def load_phase1_embeddings(config):
-    data_cfg = config.get("data", {})
-    emb_path = data_cfg.get("phase1_embeddings_pt")
-    if emb_path:
-        emb_full_path = resolve_path(emb_path)
-        if os.path.isfile(emb_full_path):
-            print(f"Loading Phase 1 embeddings from: {emb_full_path}")
-            return torch.load(emb_full_path, map_location="cpu")
-        else:
-            print(f"Warning: Phase 1 embedding file not found: {emb_full_path}")
-    return None
+# def load_phase1_embeddings(config):
+#     data_cfg = config.get("data", {})
+#     emb_path = data_cfg.get("phase1_embeddings_pt")
+#     if emb_path:
+#         emb_full_path = resolve_path(emb_path)
+#         if os.path.isfile(emb_full_path):
+#             print(f"Loading Phase 1 embeddings from: {emb_full_path}")
+#             return torch.load(emb_full_path, map_location="cpu")
+#         else:
+#             print(f"Warning: Phase 1 embedding file not found: {emb_full_path}")
+#     return None
 
 # ... (保留最顶部的 imports, set_seed 等) ...
 
