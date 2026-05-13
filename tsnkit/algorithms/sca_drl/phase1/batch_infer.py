@@ -26,12 +26,16 @@ def batch_inference(config_path="configs/phase1.yaml"):
     data_cfg = cfg["data"]
     model_cfg = cfg["model"]
     infer_cfg = cfg["inference"]
-    
+
+    # 单一事实来源：从 data_config.yaml 覆盖数据路径
+    from sca_drl.common.utils import load_config as _lc
+    dc = _lc("configs/data_config.yaml")
+    data_dir  = resolve_path(dc["data_dir"])
+    topo_path = os.path.join(data_dir, "0_topo.csv")
+
     device = get_device()
-    topo_path = resolve_path(data_cfg["topo_file"])
     k_paths = data_cfg.get("k_paths", 3)
-    n_clusters = infer_cfg.get("n_clusters", 8) # 默认分成8组
-    alpha = infer_cfg.get("alpha", 0.6)
+    n_clusters = infer_cfg.get("n_clusters", 8)
 
     # 初始化并加载最优模型
     model = GNNPartitionModel(
@@ -51,11 +55,13 @@ def batch_inference(config_path="configs/phase1.yaml"):
     model.eval()
     print(f"✅ GNN 最优大脑已挂载: {os.path.basename(ckpt_path)}")
 
-    # 2. 搜集所有的考卷 (Train 和 Val 都要处理)
-    task_dir = resolve_path(data_cfg["task_dir"])
-    train_files = glob.glob(os.path.join(task_dir, "[0-9]*_task.csv"))
-    val_files = glob.glob(os.path.join(task_dir, "val_*_task.csv"))
-    all_task_files = train_files + val_files
+    # 2. 搜集所有的考卷 (train / val / benchmark)
+    all_task_files = []
+    for n_dir in sorted(glob.glob(os.path.join(data_dir, "train", "N*"))):
+        all_task_files.extend(sorted(glob.glob(os.path.join(n_dir, "*_task.csv"))))
+    all_task_files.extend(sorted(glob.glob(os.path.join(data_dir, "val", "*_task.csv"))))
+    for n_dir in sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*"))):
+        all_task_files.extend(sorted(glob.glob(os.path.join(n_dir, "*_task.csv"))))
     
     print(f"📂 共发现 {len(all_task_files)} 份考卷需要打标，准备大批量前向推理...")
     time.sleep(1)
@@ -85,8 +91,7 @@ def batch_inference(config_path="configs/phase1.yaml"):
             embeddings = model(data).cpu().numpy()
 
         # [步骤 C] 谱聚类，计算分组
-        periods = data.periods.tolist()
-        W = compute_affinity_matrix(embeddings, periods, alpha=alpha)
+        W = compute_affinity_matrix(embeddings)
         sc = SpectralClustering(n_clusters=n_clusters, affinity="precomputed", random_state=42)
         labels = sc.fit_predict(W)
 

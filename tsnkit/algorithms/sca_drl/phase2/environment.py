@@ -109,9 +109,9 @@ class TSNEnv(gym.Env):
             sample_emb = next(iter(self.phase1_embeddings.values()))
             self.emb_dim = sample_emb.shape[0] if hasattr(sample_emb, 'shape') else len(sample_emb)
         else:
-            self.emb_dim = 1 # 降级保护：如果没有传入，维度退回 1（等同于老版的 [0.0]） 
+            self.emb_dim = env_params.get('emb_dim', 1)  # 从 phase2.yaml environment.emb_dim 读取
         
-        # 获取所有边，并固化索引 (用于生成固定维度的 g_global)全局快照
+        # 获取所有边，并固化索引 (用于生成固定维度的 global_snapshot)全局快照
         self.edges = self.topo.links 
         self.num_edges = len(self.edges)
         self.edge_to_idx = {edge: idx for idx, edge in enumerate(self.edges)}
@@ -124,7 +124,7 @@ class TSNEnv(gym.Env):
         
         # 借用初始 task 算出固定 W （第一个task的流的LCM）
         initial_task = env_config['task'] # 提前把初始考卷拿出来看一眼
-        max_acceptable_W = env_config.get('max_obs_window', 10000) 
+        max_acceptable_W = env_config.get("environment", {}).get("max_obs_window", 10000)
         
         # ===========提取初始考卷的 LCM=================
         if hasattr(initial_task, 'lcm'):
@@ -170,7 +170,10 @@ class TSNEnv(gym.Env):
         """动态更换考卷，并读取 Phase 1 的分组标签"""
         self.task = task
         self.flows = self.task.streams
-        
+
+        task_lcm = getattr(task, 'lcm', None) or int(np.lcm.reduce([f.period for f in task.streams]))
+        print(f"[Env] 换题 | 流数={len(self.flows)} | LCM={task_lcm:,} ns | 可见比={self.W/task_lcm*100:.3f}% | W={self.W} ns")
+
         # 截断防御：如果流数量超出了我们的 MAX_FLOWS 容忍度，强行截断
         if len(self.flows) > self.MAX_FLOWS:
             print(f"⚠️ 警告: 任务流数量({len(self.flows)}) 超过 MAX_FLOWS({self.MAX_FLOWS})，执行截断！")
@@ -205,6 +208,9 @@ class TSNEnv(gym.Env):
             if os.path.exists(emb_pt_path):
                 # 读入这套卷子专属的 16 维特征字典 {sid: tensor}
                 self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
+                loaded_dim = next(iter(self.phase1_embeddings.values())).shape[0]
+                if loaded_dim != self.emb_dim:
+                    raise ValueError(f"embedding维度不符: 期待 {self.emb_dim}, 实际 {loaded_dim}")
     
 
     def reset(self, seed=None, options=None):

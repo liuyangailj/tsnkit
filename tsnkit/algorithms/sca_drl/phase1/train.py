@@ -145,6 +145,12 @@ def evaluate(model, loader, neg_sample_ratio, device):
 
 def main(config: dict):
     """多实例 batch 训练主流程(含验证)。"""
+    # 从 data_config.yaml 覆盖数据路径（单一事实来源）
+    dc = load_config("configs/data_config.yaml")
+    data_dir = resolve_path(dc["data_dir"])
+    config["data"]["task_dir"] = data_dir
+    config["data"]["topo_file"] = os.path.join(data_dir, "0_topo.csv")
+
     data_cfg = config["data"]
     model_cfg = config["model"]
     train_cfg = config["training"]
@@ -152,25 +158,28 @@ def main(config: dict):
     topo_path = resolve_path(data_cfg["topo_file"])
     k_paths=data_cfg["k_paths"]
     
-    # 训练集
-    train_files = resolve_task_files(data_cfg, key="task_pattern")
+    # 训练集：train/N150/ ~ N200/ (6 档 × 50 套)
+    _train_n = [150, 160, 170, 180, 190, 200]
+    train_files = []
+    for n in _train_n:
+        train_files.extend(sorted(glob.glob(os.path.join(data_dir, "train", f"N{n}", "*_task.csv"))))
+    if not train_files:
+        raise FileNotFoundError(f"No training files found under train/N150~N200 in {data_dir}")
     train_dataset = MultiInstanceDataset(train_files, topo_path, k_paths, cache_name="train")
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=train_cfg.get("batch_size", 8), 
+        train_dataset,
+        batch_size=train_cfg.get("batch_size", 8),
         shuffle=True,
-        )
-    
-    # 验证集
+    )
+    print(f"Training set: {len(train_files)} graphs (N150~N200)")
+
+    # 验证集：val/
     val_loader = None
-    val_pattern = data_cfg.get("val_pattern")
-    if val_pattern:
-        val_dir = resolve_path(data_cfg["task_dir"])
-        val_files = sorted(glob.glob(os.path.join(val_dir, val_pattern)))
-        if val_files:
-             val_dataset = MultiInstanceDataset(val_files, topo_path, k_paths, cache_name="val")
-             val_loader = DataLoader(val_dataset, batch_size=train_cfg.get("batch_size", 8))
-             print(f"Validation set: {len(val_files)} graphs")
+    val_files = sorted(glob.glob(os.path.join(data_dir, "val", "*_task.csv")))
+    if val_files:
+        val_dataset = MultiInstanceDataset(val_files, topo_path, k_paths, cache_name="val")
+        val_loader = DataLoader(val_dataset, batch_size=train_cfg.get("batch_size", 8))
+        print(f"Validation set: {len(val_files)} graphs")
 
     # 模型 & 优化器
     device = get_device()
@@ -184,48 +193,55 @@ def main(config: dict):
     
     # 🌟 3. 初始化 TensorBoard MLOps 记录器
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-    run_dir = resolve_path(f"./runs/phase1_gnn_{current_time}")
+    run_dir = resolve_path(f"./runs/phase1/phase1_gnn_{current_time}")
     ensure_dir(run_dir)
     writer = SummaryWriter(log_dir=run_dir)
     print(f"📊 TensorBoard 日志已开启: tensorboard --logdir={run_dir}")
 
     n_epochs = train_cfg["n_epochs"]
     neg_ratio = train_cfg.get("neg_sample_ratio", 0.5)
+    val_interval = train_cfg.get("val_interval", 10)
+    patience = train_cfg.get("early_stopping_patience", 10)
     best_val_loss = float("inf")
+    patience_counter = 0
 
-    print(f"Training: {n_epochs} epochs, {len(train_dataset)} graphs," 
-          f"batch_size={train_cfg.get('batch_size', 8)}")
+    print(f"Training: {n_epochs} epochs, {len(train_dataset)} graphs, "
+          f"batch_size={train_cfg.get('batch_size', 8)}, val_interval={val_interval}")
     print("-" * 60)
 
     for epoch in range(1, n_epochs + 1):
         t0 = time.time()
         train_loss = train_epoch(model, train_loader, optimizer, neg_ratio, device)
         elapsed = time.time() - t0
-        
-        # 🌟 写入训练 Loss
+
         writer.add_scalar("Loss/1_Train_Loss", train_loss, epoch)
-        log = f"Epoch {epoch:03d}/{n_epochs} | Train Loss: {train_loss:.4f}"
-        
-        # 🌟 验证评估
-        if val_loader:
+        log = f"Epoch {epoch:03d}/{n_epochs} | Train Loss: {train_loss:.4f} | {elapsed:.1f}s"
+
+        stop_early = False
+        if val_loader and epoch % val_interval == 0:
             val_loss = evaluate(model, val_loader, neg_ratio, device)
-            
-            # 🌟 写入验证 Loss
             writer.add_scalar("Loss/2_Val_Loss", val_loss, epoch)
-            log += f" | Val Loss: {val_loss:.4f}"            
-            
-            # 保存最优模型
+            log += f" | Val Loss: {val_loss:.4f}"
+
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                patience_counter = 0
                 best_path = resolve_path(
                     train_cfg["checkpoint_path"].replace(".pth", "_best.pth")
                 )
                 ensure_dir(os.path.dirname(best_path))
                 torch.save(model.state_dict(), best_path)
-                log += " ★ [Best Model Saved]"
-                
-        log += f" | {elapsed:.1f}s"
+                log += " ★ [Best Saved]"
+            else:
+                patience_counter += 1
+                log += f" (patience {patience_counter}/{patience})"
+                if patience_counter >= patience:
+                    log += " → Early Stop!"
+                    stop_early = True
+
         print(log)
+        if stop_early:
+            break
         
     # 保存最终模型
     ckpt_path = resolve_path(train_cfg["checkpoint_path"])

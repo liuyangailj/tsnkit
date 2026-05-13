@@ -1,0 +1,27 @@
+# ============================================
+# SCA-DRL 数据生成配置（单一事实来源）
+# 修改此文件后，重新运行 data/data_generater.py 即可
+# ============================================
+
+# 输出目录（相对于 sca_drl/，由 resolve_path 解析为绝对路径）
+# fig9 旧数据保留不动，fig10 单独存放
+data_dir: "data/data_storm/fig10"
+
+topo:
+  sw_count: 15
+  es_count:  31
+
+task:
+  # 训练集：11 档难度 × train_per_n 套/档
+  train_flow_pool: [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200]
+  train_per_n:     50
+  # 验证集：固定 N=180
+  val_flow_count:  180
+  val_count:       50
+  # benchmark：7 档（含分布外 N=40/60/250）× benchmark_per_n 套/档
+  benchmark_flow_pool: [40, 60, 80, 100, 150, 200, 250]
+  benchmark_per_n: 30
+  # 共用参数
+  period_pool:    [1_000_000, 2_000_000, 4_000_000, 8_000_000] # LCM=8_000_000ns=8000槽
+  frame_size_min: 100
+  frame_size_max: 1500

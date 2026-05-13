@@ -17,7 +17,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 # 模块一：神经网络架构 (Congestion-Aware Transformer)
 # =====================================================================
 class CongestionAwareTransformer(nn.Module):
-    def __init__(self, num_flows, k_max, d_feature, global_dim, d_model, n_heads, n_layers):
+    def __init__(self, num_flows, k_max, d_feature, global_dim, d_model, n_heads, n_layers, d_ff=None):
         super().__init__()
         self.num_flows = num_flows
         self.k_max = k_max
@@ -40,9 +40,9 @@ class CongestionAwareTransformer(nn.Module):
         
         # 2. 拥塞感知核心大脑 (Transformer Encoder 共享躯干)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, 
-            nhead=n_heads, 
-            dim_feedforward=d_model * 4,
+            d_model=d_model,
+            nhead=n_heads,
+            dim_feedforward=d_ff if d_ff is not None else d_model * 4,
             batch_first=True,  
             norm_first=True    
         )
@@ -119,15 +119,17 @@ class PPOAgent:
     def __init__(self, env, config):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # 从配置字典中提取
-        trans_cfg = config.get("transformer", {})
-        ppo_cfg = config.get("ppo", {}) 
+        # 从配置字典中提取（config 结构为 {agent: {transformer: {}, ppo: {}}}）
+        agent_cfg = config.get("agent", {})
+        trans_cfg = agent_cfg.get("transformer", {})
+        ppo_cfg   = agent_cfg.get("ppo", {})
         
         d_model = trans_cfg.get("d_model", 64)
         n_heads = trans_cfg.get("nhead", 4)
         n_layers = trans_cfg.get("num_layers", 3)
-        
-        lr = ppo_cfg.get("learning_rate", 2.5e-4)        
+        d_ff = trans_cfg.get("d_ff", None)
+
+        lr = ppo_cfg.get("learning_rate", 2.5e-4)
         self.gamma = ppo_cfg.get("gamma", 0.99)
         self.clip_coef = ppo_cfg.get("eps_clip", 0.2)
         self.ent_coef = ppo_cfg.get("entropy_coef", 0.01)
@@ -141,9 +143,9 @@ class PPOAgent:
         self.global_dim = env.observation_space['global_snapshot'].shape[0]
         
         self.network = CongestionAwareTransformer(
-            num_flows=self.num_flows, k_max=self.k_max, 
+            num_flows=self.num_flows, k_max=self.k_max,
             d_feature=self.d_feature, global_dim=self.global_dim,
-            d_model=d_model, n_heads=n_heads, n_layers=n_layers
+            d_model=d_model, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff
         ).to(self.device)
         
         self.optimizer = optim.Adam(self.network.parameters(), lr=lr, eps=1e-5)

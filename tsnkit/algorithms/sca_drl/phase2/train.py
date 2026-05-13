@@ -31,34 +31,52 @@ from sca_drl.common.utils import (
 #             print(f"Warning: Phase 1 embedding file not found: {emb_full_path}")
 #     return None
 
-# ... (保留最顶部的 imports, set_seed 等) ...
+def sample_flow_count(progress):
+    if progress < 0.3:
+        return random.choice(range(100, 151, 10))
+    elif progress < 0.7:
+        return random.choice(range(150, 181, 10))
+    else:
+        return random.choice(range(180, 201, 10))
 
-def train(config):
+
+def train(config, resume_path=None):
     print("="*60)
     print("🚀 SCA-DRL Phase 2: 终极泛化训练引擎启动 (带验证集闭环) 🚀")
     print("="*60)
     
-    set_seed(config.get("seed", 42))   
-    
-    data_cfg = config.get("data", {})
-    task_files_path = resolve_path(data_cfg["task_dir"])
-    topo_path = resolve_path(data_cfg["topo_file"])    
-    
+    set_seed(config.get("seed", 42))
+
+    # 从 data_config.yaml 覆盖数据路径（单一事实来源）
+    dc = load_config("configs/data_config.yaml")
+    data_dir = resolve_path(dc["data_dir"])
+    config["data"]["task_dir"] = data_dir
+    config["data"]["topo_file"] = os.path.join(data_dir, "0_topo.csv")
+
+    topo_path = resolve_path(config["data"]["topo_file"])
+
     # 🌟 1. 严格隔离 Train 和 Val 数据集！(拒绝数据泄露)
-    train_files = glob.glob(os.path.join(task_files_path, "[0-9]*_task.csv"))
-    val_files = glob.glob(os.path.join(task_files_path, "val_*_task.csv"))
-    
-    if not train_files:
+    train_files_by_n = {}
+    for n_dir in sorted(glob.glob(os.path.join(data_dir, "train", "N*"))):
+        n = int(os.path.basename(n_dir)[1:])
+        files = glob.glob(os.path.join(n_dir, "*_task.csv"))
+        if files:
+            train_files_by_n[n] = files
+    all_n_values = sorted(train_files_by_n.keys())
+    val_files = glob.glob(os.path.join(data_dir, "val", "*_task.csv"))
+
+    if not train_files_by_n:
         print("❌ 找不到训练数据！")
-        return   
-    
-    print(f"[1/4] 成功发现拓扑与考卷: 训练集 {len(train_files)} 份，验证集 {len(val_files)} 份！")
+        return
+
+    total_train = sum(len(v) for v in train_files_by_n.values())
+    print(f"[1/4] 成功发现拓扑与考卷: 训练集 {total_train} 份 ({len(all_n_values)} 档难度)，验证集 {len(val_files)} 份！")
     topo = utils_tsnkit.load_network(topo_path)     
       
     print("[2/4] 初始化 TSNEnv 与 Transformer PPOAgent...")
     
     # 环境初始化
-    initial_task_file = train_files[0]
+    initial_task_file = train_files_by_n[all_n_values[0]][0]
     initial_task = utils_tsnkit.load_stream(initial_task_file)  
     env_config = {
         'environment': config.get("environment", {}),
@@ -74,14 +92,22 @@ def train(config):
     agent = PPOAgent(env=env, config=config)
     initial_lr = config.get('agent', {}).get('ppo', {}).get('learning_rate', 3e-4)
    
-    # MLOps 配置
-    current_time = datetime.now().strftime('%b%d_%H-%M-%S')    
-    run_dir = resolve_path(f"./phase2/runs/phase2_ppo_{current_time}")
-    model_dir = resolve_path(f"./phase2/models/phase2_{current_time}")
+    # MLOps 配置（断点续训时复用旧目录，保证 TensorBoard 曲线连续）
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+
+    ckpt_data = None
+    if resume_path and os.path.exists(resume_path):
+        ckpt_data = torch.load(resume_path, map_location='cpu', weights_only=False)
+        run_dir   = ckpt_data['run_dir']
+        model_dir = os.path.dirname(os.path.abspath(resume_path))
+    else:
+        run_dir   = resolve_path(f"./runs/phase2/phase2_ppo_{current_time}")
+        model_dir = resolve_path(f"./models/phase2/phase2_{current_time}")
+
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
-    
-    # === 恢复你的硬盘级双轨日志系统 ===
+
+    # === 硬盘级双轨日志系统 ===
     class Logger(object):
         def __init__(self, filename):
             self.terminal = sys.stdout
@@ -90,28 +116,37 @@ def train(config):
         def write(self, message):
             self.terminal.write(message)
             self.log.write(message)
-            self.log.flush() 
+            self.log.flush()
 
         def flush(self):
             self.terminal.flush()
             self.log.flush()
 
     sys.stdout = Logger(os.path.join(run_dir, "train_log.txt"))
-    sys.stderr = sys.stdout  
+    sys.stderr = sys.stdout
     print(f"📁 本次实验日志已挂载: {run_dir}/train_log.txt")
-    
+
     writer = SummaryWriter(log_dir=run_dir)
 
     train_cfg = config.get("training", {})
-    total_iterations = train_cfg.get("total_iterations", 200)
-    episodes_per_iter = train_cfg.get("episodes_per_iter", 8)
-    
-    print(f"[3/4] 训练规划: 共 {total_iterations} 轮, 每轮收集 {episodes_per_iter} 份考卷")
+    total_iterations    = train_cfg.get("total_iterations", 200)
+    episodes_per_iter   = train_cfg.get("episodes_per_iter", 8)
+    checkpoint_interval = train_cfg.get("checkpoint_interval", 10)
+
+    # 恢复断点状态（Logger 之后执行，确保日志同时写入文件）
+    start_iteration  = 1
+    best_val_success = -1.0
+    if ckpt_data is not None:
+        agent.network.load_state_dict(ckpt_data['network_state_dict'])
+        agent.optimizer.load_state_dict(ckpt_data['optimizer_state_dict'])
+        start_iteration  = ckpt_data['iteration'] + 1
+        best_val_success = ckpt_data['best_val_success']
+        print(f"✅ 断点恢复成功: 从第 {start_iteration} 轮继续，历史最优验证率 {best_val_success:.1f}%")
+
+    print(f"[3/4] 训练规划: 共 {total_iterations} 轮（当前从第 {start_iteration} 轮开始）, 每轮收集 {episodes_per_iter} 份考卷")
     print("[4/4] ⚔️ 面对风暴吧！Transformer！\n")
 
-    best_val_success = -1.0 # 用于保存最佳模型
-
-    for iteration in range(1, total_iterations + 1):
+    for iteration in range(start_iteration, total_iterations + 1):
         # --- 学习率衰减 ---
         frac = 1.0 - (iteration - 1.0) / total_iterations
         lr_now = frac * initial_lr
@@ -128,8 +163,10 @@ def train(config):
         # ==========================================
         agent.network.train()
         for ep in range(episodes_per_iter):
-            # 严格从 train_files 里抽题！
-            random_task_file = random.choice(train_files)
+            progress = (iteration - 1) / total_iterations
+            target_n = sample_flow_count(progress)
+            n_key = min(all_n_values, key=lambda k: abs(k - target_n))
+            random_task_file = random.choice(train_files_by_n[n_key])
             new_task = utils_tsnkit.load_stream(random_task_file)   
             env.load_new_task(new_task, random_task_file)
             
@@ -226,6 +263,18 @@ def train(config):
                 torch.save(agent.network.state_dict(), best_path)
                 print(f"   => 🌟 [突破纪录] 最优模型已更新并保存!")
 
+        # 定期断点存档（覆盖写，只保留最新一份）
+        if checkpoint_interval > 0 and iteration % checkpoint_interval == 0:
+            resume_ckpt = os.path.join(model_dir, "resume.pth")
+            torch.save({
+                'iteration':            iteration,
+                'network_state_dict':   agent.network.state_dict(),
+                'optimizer_state_dict': agent.optimizer.state_dict(),
+                'best_val_success':     best_val_success,
+                'run_dir':              run_dir,
+            }, resume_ckpt)
+            print(f"   => 💾 [断点存档] 第 {iteration} 轮 → {os.path.basename(resume_ckpt)}")
+
     writer.close()
     print("\n🎉 训练完美收官！")
 
@@ -235,7 +284,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Phase 2 PPO Training")
     parser.add_argument("--config", default="configs/phase2.yaml", help="Path to config file")
+    parser.add_argument("--resume", default=None, help="断点续训: 传入 resume.pth 的路径")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    train(cfg)
+    train(cfg, resume_path=args.resume)

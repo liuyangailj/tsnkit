@@ -19,16 +19,18 @@ model:
 
 training:
   learning_rate: 0.005
-  n_epochs: 50  # 
-  batch_size: 8                       # 每个batch包含几张冲突图  
+  n_epochs: 100
+  batch_size: 8                       # 每个batch包含几张冲突图
   neg_sample_ratio: 0.5               # 负采样数 = 正样本边数 × ratio
-  checkpoint_path: "models/phase1_gat.pth"
+  val_interval: 10                    # 每 N 个 epoch 做一次验证
+  early_stopping_patience: 10         # 连续 N 次验证无提升则停止
+  checkpoint_path: "models/phase1/phase1_gat.pth"
 
 inference:
-  checkpoint_path: "models/phase1_gat.pth"    # 与 training 保持一致
+  checkpoint_path: "models/phase1/phase1_gat.pth"    # 与 training 保持一致
   task_file: "data/data_storm/1_task.csv"     # 推理同单独的测试集
   n_clusters: 4                                # 谱聚类分组数
-  alpha: 0.6                                   # W_ij = α·s_gnn + (1-α)·s_prior
+  # alpha: 0.6                                 # 已移除谐波先验，alpha 不再使用
   
   # output:
   #   groups_csv: "results/phase1_groups.csv"      
