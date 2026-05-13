@@ -324,7 +324,7 @@ class TSNEnv(gym.Env):
                     U_i[k] = max(path_link_utils) if path_link_utils else 0.0
 
             # 🌟 核心修改：动态获取该流的 Embedding
-            stream_id = getattr(f, 'name', str(getattr(f, 'id', i)))
+            stream_id = str(int(f))  # Stream 继承自 int，int(f) 直接返回 stream ID
             if self.phase1_embeddings is not None and stream_id in self.phase1_embeddings:
                 emb = self.phase1_embeddings[stream_id]
                 # 处理如果 phase1 吐出的是 GPU Tensor 的情况
@@ -388,14 +388,14 @@ class TSNEnv(gym.Env):
             active_groups = []
             for i in pending_flows:
                 f = self.flows[i]
-                sid = getattr(f, 'name', str(getattr(f, 'id', i)))
+                sid = str(int(f))  # Stream 继承自 int，int(f) 直接返回 stream ID
                 active_groups.append(self.flow_groups.get(sid, 0)) # 查不到默认给 0
             current_active_group = min(active_groups)
         
         # 🌟 2. 实施三重门禁    
         for i in range(self.num_flows):
             f = self.flows[i]
-            sid = getattr(f, 'name', str(getattr(f, 'id', i)))
+            sid = str(int(f))  # Stream 继承自 int，int(f) 直接返回 stream ID
             my_group = self.flow_groups.get(sid, 0)
             
             # 三重门禁：只有 status=1 的流，且属于当前活动组，才能被考虑；其他一律屏蔽

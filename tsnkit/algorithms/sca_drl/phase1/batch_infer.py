@@ -72,7 +72,7 @@ def _infer_and_save(data, task_path, model, n_clusters, model_tag, device):
     sc     = SpectralClustering(n_clusters=n_clusters, affinity="precomputed", random_state=42)
     labels = sc.fit_predict(W)
 
-    emb_dict = {sid: torch.tensor(embeddings[idx]) for idx, sid in enumerate(data.stream_ids)}
+    emb_dict = {str(sid): torch.tensor(embeddings[idx]) for idx, sid in enumerate(data.stream_ids)}
     torch.save(emb_dict, out_emb)
 
     with open(out_grp, "w", newline="") as f:
