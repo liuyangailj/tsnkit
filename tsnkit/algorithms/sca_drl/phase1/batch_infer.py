@@ -36,6 +36,8 @@ def batch_inference(config_path="configs/phase1.yaml"):
     device = get_device()
     k_paths = data_cfg.get("k_paths", 3)
     n_clusters = infer_cfg.get("n_clusters", 8)
+    model_tag = f"k{k_paths}_d{model_cfg['output_dim']}"
+    print(f"📦 模型版本标签: {model_tag}  (文件后缀: _{model_tag}_emb.pt / _{model_tag}_group.csv)")
 
     # 初始化并加载最优模型
     model = GNNPartitionModel(
@@ -71,10 +73,10 @@ def batch_inference(config_path="configs/phase1.yaml"):
         base_name = os.path.basename(task_path).replace(".csv", "") # e.g., "1_task" or "val_1_task"
         dir_name = os.path.dirname(task_path)
         
-        out_emb_path = os.path.join(dir_name, f"{base_name}_emb.pt")
-        out_group_path = os.path.join(dir_name, f"{base_name}_group.csv")
-        
-        # 如果已经生成过了，就跳过（方便中断后继续）
+        out_emb_path = os.path.join(dir_name, f"{base_name}_{model_tag}_emb.pt")
+        out_group_path = os.path.join(dir_name, f"{base_name}_{model_tag}_group.csv")
+
+        # 同版本已生成则跳过（不同 model_tag 生成不同文件名，互不干扰）
         if os.path.exists(out_emb_path) and os.path.exists(out_group_path):
             continue
 

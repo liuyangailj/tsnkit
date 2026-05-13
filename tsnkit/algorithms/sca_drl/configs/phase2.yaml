@@ -16,7 +16,8 @@ environment:
   max_flows: 200              # 训练阶段最大流数量 (N=100~200)
   k_max: 5                    # 每条流最大候选路径数
   max_steps_per_episode: 200  # 单 episode 最大步数
-  emb_dim: 16                 # Phase 1 output_dim，与 phase1.yaml model.output_dim 保持一致
+  emb_dim: 32                 # Phase 1 output_dim，与 phase1.yaml model.output_dim 保持一致
+  emb_model_tag: "k5_d32"    # Phase 1 模型版本标签，与 batch_infer 输出文件名对齐
   max_obs_window: 8000        # = LCM(1000,2000,4000,8000槽) 全超周期覆盖
   reward:
     all_success: 10.0        # omega_0全部流调度完成的奖励

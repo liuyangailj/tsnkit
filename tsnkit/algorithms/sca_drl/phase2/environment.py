@@ -103,6 +103,9 @@ class TSNEnv(gym.Env):
         self.omega_3 = reward_cfg.get('util_penalty', 0.1)
         self.omega_4 = reward_cfg.get('failure', 0.0)       
         
+        # Phase 1 模型版本标签，与 batch_infer 输出文件名一致
+        self.model_tag = env_params.get('emb_model_tag', '')
+
         # [🌟 Embedding接入] 动态获取 embedding 维度
         self.phase1_embeddings = phase1_embeddings
         if self.phase1_embeddings is not None and len(self.phase1_embeddings) > 0:
@@ -192,7 +195,8 @@ class TSNEnv(gym.Env):
         # 🌟 新增：读取教导主任的分组表
         self.flow_groups = {} # 字典: {流ID: 组号}
         if task_file_path is not None:
-            group_csv_path = task_file_path.replace(".csv", "_group.csv")
+            tag_suffix = f"_{self.model_tag}" if self.model_tag else ""
+            group_csv_path = task_file_path.replace(".csv", f"{tag_suffix}_group.csv")
             if os.path.exists(group_csv_path):
                 df_group = pd.read_csv(group_csv_path)
                 # 假设 csv 里有 'stream_id' 和 'group_id' 两列
@@ -200,11 +204,11 @@ class TSNEnv(gym.Env):
                     self.flow_groups[str(row['stream_id'])] = int(row['group_id'])
             else:
                 print(f"⚠️ 未找到分组表 {group_csv_path}，所有流默认归为 0 组！")
-                
+
         # 🌟 2. 新增：动态读取这张考卷专属的 Embedding 特征
         self.phase1_embeddings = {}
         if task_file_path is not None:
-            emb_pt_path = task_file_path.replace(".csv", "_emb.pt")
+            emb_pt_path = task_file_path.replace(".csv", f"{tag_suffix}_emb.pt")
             if os.path.exists(emb_pt_path):
                 # 读入这套卷子专属的 16 维特征字典 {sid: tensor}
                 self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
