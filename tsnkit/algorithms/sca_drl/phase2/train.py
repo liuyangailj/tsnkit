@@ -7,6 +7,7 @@ import time
 import glob
 import random
 import numpy as np
+from collections import defaultdict
 import torch
 from tsnkit import core as utils_tsnkit 
 from torch.utils.tensorboard import SummaryWriter
@@ -19,25 +20,11 @@ from sca_drl.common.utils import (
     set_seed, load_config, resolve_path, get_device, ensure_dir
 )
 
-# def load_phase1_embeddings(config):
-#     data_cfg = config.get("data", {})
-#     emb_path = data_cfg.get("phase1_embeddings_pt")
-#     if emb_path:
-#         emb_full_path = resolve_path(emb_path)
-#         if os.path.isfile(emb_full_path):
-#             print(f"Loading Phase 1 embeddings from: {emb_full_path}")
-#             return torch.load(emb_full_path, map_location="cpu")
-#         else:
-#             print(f"Warning: Phase 1 embedding file not found: {emb_full_path}")
-#     return None
-
 def sample_flow_count(progress):
-    if progress < 0.3:
-        return random.choice(range(100, 151, 10))
-    elif progress < 0.7:
-        return random.choice(range(150, 181, 10))
+    if progress < 0.4:
+        return random.choice(range(140, 171, 10))  # 140,150,160,170
     else:
-        return random.choice(range(180, 201, 10))
+        return random.choice(range(170, 201, 10))  # 170,180,190,200
 
 
 def train(config, resume_path=None):
@@ -153,10 +140,10 @@ def train(config, resume_path=None):
         for param_group in agent.optimizer.param_groups:
             param_group["lr"] = lr_now        
         
-        rollouts = { 'flow_tokens': [], 'global_snapshot': [], 'action_masks': [], 'actions': [], 
+        rollouts = { 'flow_tokens': [], 'global_snapshot': [], 'action_masks': [], 'actions': [],
                      'logprobs': [], 'rewards': [], 'values': [], 'dones': [] }
-        
-        iter_rewards, iter_success_rates, iter_avg_hops = [], [], []
+
+        iter_rewards, iter_success_rates, iter_avg_hops, iter_n_values = [], [], [], []
 
         # ==========================================
         # 🏋️‍♂️ 阶段 A：训练模式 (Train Loop)
@@ -167,40 +154,42 @@ def train(config, resume_path=None):
             target_n = sample_flow_count(progress)
             n_key = min(all_n_values, key=lambda k: abs(k - target_n))
             random_task_file = random.choice(train_files_by_n[n_key])
-            new_task = utils_tsnkit.load_stream(random_task_file)   
+            new_task = utils_tsnkit.load_stream(random_task_file)
             env.load_new_task(new_task, random_task_file)
-            
+
             obs, _ = env.reset()
-            ep_reward, ep_hops = 0.0, []
-            
-            for step in range(env.num_flows):
+            ep_reward, ep_hops, ep_success = 0.0, [], 0.0
+
+            for _ in range(env.num_flows):
                 rollouts['flow_tokens'].append(obs['flow_tokens'])
                 rollouts['global_snapshot'].append(obs['global_snapshot'])
                 rollouts['action_masks'].append(obs['action_mask'])
-                
-                # 采样动作 (探索)
+
                 action, logprob, entropy, value = agent.get_action_and_value(obs)
                 next_obs, reward, terminated, truncated, info = env.step(action)
-                
+
                 rollouts['actions'].append(action)
                 rollouts['logprobs'].append(logprob.item())
                 rollouts['rewards'].append(reward)
                 rollouts['values'].append(value.item())
-                rollouts['dones'].append(terminated) 
-                
+                rollouts['dones'].append(terminated)
+
                 ep_reward += reward
                 obs = next_obs
-                
+
                 if info.get('is_allocated', False) and 'hop_count' in info:
                     ep_hops.append(info['hop_count'])
-                
+
                 if terminated:
-                    if 'group_success_rate' in info:
-                        iter_success_rates.append(info['group_success_rate'])
+                    ep_success = info.get('group_success_rate', 0.0)
+                    iter_success_rates.append(ep_success)
                     iter_avg_hops.append(sum(ep_hops)/len(ep_hops) if ep_hops else 0.0)
                     break
-            
+
             iter_rewards.append(ep_reward)
+            iter_n_values.append(n_key)
+            mark = "100%" if ep_success >= 1.0 else f"{ep_success*100:4.1f}%"
+            print(f"  ep{ep+1}/{episodes_per_iter} N={n_key:3d} [{mark}] R={ep_reward:6.2f}")
 
         # --- PPO 参数更新 ---
         pg_loss, v_loss, ent = agent.update(rollouts)
@@ -209,29 +198,36 @@ def train(config, resume_path=None):
         avg_success = np.mean(iter_success_rates) * 100 if iter_success_rates else 0.0
         avg_hop = np.mean(iter_avg_hops) if iter_avg_hops else 0.0
         
-        # print(f"Iter {iteration:03d} | Train 成功率: {avg_success:5.1f}% | Reward: {avg_reward:7.2f} | P_Loss: {pg_loss:6.3f}")
-
-        # 终端打印 (你之前已经加回来的)
-        print(f"Iter {iteration:03d} | 总流数：{env.num_flows} | Train 成功率: {avg_success:5.1f}% | 均跳数: {avg_hop:4.2f} | Reward: {avg_reward:7.2f} | P_Loss: {pg_loss:6.3f} | V_Loss: {v_loss:6.3f} | Ent: {ent:5.3f}")
+        n_min, n_max = min(iter_n_values), max(iter_n_values)
+        n_avg = int(np.mean(iter_n_values))
+        print(f"Iter {iteration:03d}/{total_iterations} | N={n_min}~{n_max} avg={n_avg} | "
+              f"成功率:{avg_success:5.1f}% | 均跳:{avg_hop:4.2f} | "
+              f"R:{avg_reward:6.2f} | PG:{pg_loss:6.3f} | V:{v_loss:6.3f} | H:{ent:5.3f}")
 
         writer.add_scalar("Train/1_Success_Rate", avg_success, iteration)
         writer.add_scalar("Train/2_Avg_Reward", avg_reward, iteration)
         writer.add_scalar("Loss/1_Policy_Loss", pg_loss, iteration)
         writer.add_scalar("Loss/2_Value_Loss", v_loss, iteration)
-        # 🌟 加上这极其重要的一行！恢复 Entropy 监控！
         writer.add_scalar("Loss/3_Entropy", ent, iteration)
+
+        # 按 N 分档记录成功率，每条曲线才是真正可判断收敛的信号
+        n_sr_map = defaultdict(list)
+        for n_val, sr in zip(iter_n_values, iter_success_rates):
+            n_sr_map[n_val].append(sr)
+        for n_val, srs in sorted(n_sr_map.items()):
+            writer.add_scalar(f"Train/SR_N{n_val}", np.mean(srs) * 100, iteration)
 
         # ==========================================
         # 🧪 阶段 B：验证模式 (Validation Loop) - 每 10 轮考一次
         # ==========================================
-        if iteration % 10 == 0 and val_files:
+        if iteration % 5 == 0 and val_files:
             agent.network.eval() # 关闭 Dropout 等
             val_success_rates = []
             
             # 去做 10 张固定的验证卷 (不求导，纯测试)
             with torch.no_grad():
                 # 为了速度，我们随机挑 10 张验证卷来考
-                eval_files = random.sample(val_files, min(10, len(val_files)))
+                eval_files = val_files  # 全量 50 张，消除随机采样噪声
                 for v_file in eval_files:
                     v_task = utils_tsnkit.load_stream(v_file)
                     env.load_new_task(v_task, v_file)
@@ -253,15 +249,17 @@ def train(config, resume_path=None):
                             break
                             
             avg_val_success = np.mean(val_success_rates) * 100
-            print(f"   => 🏆 [期中考试] 验证集成功率: {avg_val_success:5.1f}%")
-            writer.add_scalar("Eval/1_Val_Success_Rate", avg_val_success, iteration)
-            
-            # 🌟 保存“泛化能力最强”的最佳模型
+            diff = avg_val_success - avg_success
+            diff_str = ('+' if diff >= 0 else '') + f'{diff:.1f}%'
+            writer.add_scalar('Eval/1_Val_Success_Rate', avg_val_success, iteration)
+
             if avg_val_success > best_val_success:
                 best_val_success = avg_val_success
-                best_path = os.path.join(model_dir, "phase2_ppo_best.pth")
+                best_path = os.path.join(model_dir, 'phase2_ppo_best.pth')
                 torch.save(agent.network.state_dict(), best_path)
-                print(f"   => 🌟 [突破纪录] 最优模型已更新并保存!")
+                print(f'  └─ Val:{avg_val_success:5.1f}% (train{diff_str}) * 新最优')
+            else:
+                print(f'  └─ Val:{avg_val_success:5.1f}% (train{diff_str})')
 
         # 定期断点存档（覆盖写，只保留最新一份）
         if checkpoint_interval > 0 and iteration % checkpoint_interval == 0:

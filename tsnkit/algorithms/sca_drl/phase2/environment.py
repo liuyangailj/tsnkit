@@ -174,8 +174,6 @@ class TSNEnv(gym.Env):
         self.task = task
         self.flows = self.task.streams
 
-        task_lcm = getattr(task, 'lcm', None) or int(np.lcm.reduce([f.period for f in task.streams]))
-        print(f"[Env] 换题 | 流数={len(self.flows)} | LCM={task_lcm:,} ns | 可见比={self.W/task_lcm*100:.3f}% | W={self.W} ns")
 
         # 截断防御：如果流数量超出了我们的 MAX_FLOWS 容忍度，强行截断
         if len(self.flows) > self.MAX_FLOWS:
@@ -209,12 +207,12 @@ class TSNEnv(gym.Env):
         self.phase1_embeddings = {}
         if task_file_path is not None:
             emb_pt_path = task_file_path.replace(".csv", f"{tag_suffix}_emb.pt")
-            if os.path.exists(emb_pt_path):
-                # 读入这套卷子专属的 16 维特征字典 {sid: tensor}
-                self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
-                loaded_dim = next(iter(self.phase1_embeddings.values())).shape[0]
-                if loaded_dim != self.emb_dim:
-                    raise ValueError(f"embedding维度不符: 期待 {self.emb_dim}, 实际 {loaded_dim}")
+            if not os.path.exists(emb_pt_path):
+                raise FileNotFoundError(f"❌ Embedding 文件缺失，请先运行 batch_infer: {emb_pt_path}")
+            self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
+            loaded_dim = next(iter(self.phase1_embeddings.values())).shape[0]
+            if loaded_dim != self.emb_dim:
+                raise ValueError(f"embedding维度不符: 期待 {self.emb_dim}, 实际 {loaded_dim}")
     
 
     def reset(self, seed=None, options=None):
@@ -503,11 +501,7 @@ class TSNEnv(gym.Env):
                 
 
                 if p_success == 1.0:
-                    # 如果 100% 调度成功，大奖
-                    jackpot_bonus = self.omega_0 
+                    jackpot_bonus = self.omega_0
                     reward += jackpot_bonus
-                    
-                    # (可选) 在终端里稍微撒个花，方便你观察它有没有“开窍”
-                    print(f"\n🎉 [环境撒花] 达成 100% 完美调度！发放全局通关大奖: +{jackpot_bonus}")
                 
             return self._get_observation(), reward, terminated, False, info
