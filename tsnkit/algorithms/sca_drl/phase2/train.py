@@ -191,7 +191,7 @@ def train(config, resume_path=None, version="v1"):
 
             for _ in range(env.num_flows):
                 rollouts['flow_tokens'].append(obs['flow_tokens'])
-                rollouts['global_snapshot'].append(obs['global_snapshot'])
+                rollouts['global_snapshot'].append(np.packbits(obs['global_snapshot'].astype(np.uint8)))
                 rollouts['action_masks'].append(obs['action_mask'])
 
                 action, logprob, entropy, value = agent.get_action_and_value(obs)

@@ -234,7 +234,7 @@ class PPOAgent:
                     continue
                 
                 b_global_mb = torch.FloatTensor(
-                    np.array([raw_global[i] for i in mb_inds])
+                    np.array([np.unpackbits(raw_global[i]).astype(np.float32) for i in mb_inds])
                 ).to(self.device)
                 logits, newvalues = self.network(b_flow_tokens[mb_inds], b_global_mb)
                 
