@@ -182,7 +182,8 @@ class PPOAgent:
 
     def update(self, rollouts):
         b_flow_tokens = torch.FloatTensor(np.array(rollouts['flow_tokens'])).to(self.device)
-        b_global = torch.FloatTensor(np.array(rollouts['global_snapshot'])).to(self.device)
+        # global_snapshot 保留为 list，不做全量 np.array()（避免一次分配 T×880000 的连续内存块）
+        raw_global = rollouts['global_snapshot']
         b_actions = torch.LongTensor(rollouts['actions']).to(self.device)
         b_logprobs = torch.FloatTensor(rollouts['logprobs']).to(self.device)
         b_rewards = torch.FloatTensor(rollouts['rewards']).to(self.device)
@@ -232,7 +233,10 @@ class PPOAgent:
                 if len(mb_inds) <= 1:
                     continue
                 
-                logits, newvalues = self.network(b_flow_tokens[mb_inds], b_global[mb_inds])
+                b_global_mb = torch.FloatTensor(
+                    np.array([raw_global[i] for i in mb_inds])
+                ).to(self.device)
+                logits, newvalues = self.network(b_flow_tokens[mb_inds], b_global_mb)
                 
                 # 🌟 拿出当时的护盾，继续保护现在的网络计算
                 mask = b_masks[mb_inds] 

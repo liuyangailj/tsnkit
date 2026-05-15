@@ -140,24 +140,13 @@ def serialize_schedule(physics, task_stem: str, output_dir: str) -> None:
 # 4. Benchmark 批量评估
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_benchmark(env: TSNEnv, agent: PPOAgent, data_dir: str,
-                  output_dir: str, save_schedule: bool) -> None:
-    """遍历 benchmark/N*/ 批量推理，写汇总 CSV。
-
-    输出：output_dir/benchmark_results.csv
-    列名：N, task_file, n_flows, n_scheduled, schedulability, time_s, n_failed, failed_ids
-    """
-    n_dirs = sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*")))
-    if not n_dirs:
-        print(f"❌ 未找到 benchmark 数据: {data_dir}/benchmark/N*/")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-    result_csv = os.path.join(output_dir, "benchmark_results.csv")
-
+def _run_n_dirs(env: TSNEnv, agent: PPOAgent, n_dirs: list,
+                result_csv: str, output_dir: str, save_schedule: bool) -> None:
+    """通用批量推理循环，被 benchmark 和 probe 共用。"""
     total = sum(len(glob.glob(os.path.join(d, "*_task.csv"))) for d in n_dirs)
     print(f"📊 共 {len(n_dirs)} 档难度，{total} 套任务，开始批量推理...\n")
 
+    os.makedirs(output_dir, exist_ok=True)
     with open(result_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["N", "task_file", "n_flows", "n_scheduled",
@@ -201,6 +190,83 @@ def run_benchmark(env: TSNEnv, agent: PPOAgent, data_dir: str,
     print(f"\n✅ 汇总报告: {result_csv}")
 
 
+def run_benchmark(env: TSNEnv, agent: PPOAgent, data_dir: str,
+                  output_dir: str, save_schedule: bool) -> None:
+    """遍历 benchmark/N*/ 批量推理，输出 benchmark_results.csv。"""
+    n_dirs = sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*")))
+    if not n_dirs:
+        print(f"❌ 未找到 benchmark 数据: {data_dir}/benchmark/N*/")
+        return
+    result_csv = os.path.join(output_dir, "benchmark_results.csv")
+    _run_n_dirs(env, agent, n_dirs, result_csv, output_dir, save_schedule)
+
+
+def run_probe(env: TSNEnv, agent: PPOAgent, data_dir: str) -> None:
+    """遍历 probe/N*/ 探针数据集批量推理，输出难度摸底报告。
+
+    输出：data_dir/probe/probe_results.csv
+    列名：N, sample_id, success_rate, success_count, total_flows
+    打印：每档 mean / stdev / min / max
+    """
+    n_dirs = sorted(glob.glob(os.path.join(data_dir, "probe", "N*")))
+    if not n_dirs:
+        print(f"❌ 未找到探针数据: {data_dir}/probe/N*/  请先运行 batch_infer --probe")
+        return
+
+    result_csv = os.path.join(data_dir, "probe", "probe_results.csv")
+    total = sum(len(glob.glob(os.path.join(d, "*_task.csv"))) for d in n_dirs)
+    print(f"🔬 探针摸底推理: {len(n_dirs)} 档 × {total//len(n_dirs)} 套 = {total} 套\n")
+
+    rows = []
+    with open(result_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["N", "sample_id", "success_rate", "success_count", "total_flows"])
+
+        for n_dir in n_dirs:
+            n = int(os.path.basename(n_dir)[1:])
+            task_files = sorted(glob.glob(os.path.join(n_dir, "*_task.csv")))
+            n_success_rates = []
+
+            for task_path in task_files:
+                stem = os.path.basename(task_path).replace(".csv", "")
+                # sample_id：从文件名 "0001_task" 提取数字
+                sample_id = int(stem.split("_")[0])
+                sys.stdout.write(f"\r  N={n:3d} | sample {sample_id:02d} ...")
+                sys.stdout.flush()
+
+                res = run_one(env, agent, task_path)
+                sr = res["schedulability"]
+                n_success_rates.append(sr)
+
+                writer.writerow([n, sample_id,
+                                  f"{sr:.4f}",
+                                  res["n_scheduled"],
+                                  res["n_flows"]])
+                f.flush()
+                rows.append((n, sample_id, sr, res["n_scheduled"], res["n_flows"]))
+
+            rates = np.array(n_success_rates)
+            print(f"\r  N={n:3d} | "
+                  f"mean={rates.mean()*100:5.1f}% "
+                  f"std={rates.std()*100:4.1f}% "
+                  f"min={rates.min()*100:5.1f}% "
+                  f"max={rates.max()*100:5.1f}%  [{len(task_files)} 套]")
+
+    print(f"\n{'─'*55}")
+    print(f"  {'N':>5}  {'mean':>7}  {'std':>6}  {'min':>7}  {'max':>7}")
+    print(f"{'─'*55}")
+    from collections import defaultdict
+    n_rates = defaultdict(list)
+    for n, _, sr, _, _ in rows:
+        n_rates[n].append(sr)
+    for n in sorted(n_rates):
+        rates = np.array(n_rates[n])
+        print(f"  N={n:<4d}  {rates.mean()*100:6.1f}%  {rates.std()*100:5.1f}%  "
+              f"{rates.min()*100:6.1f}%  {rates.max()*100:6.1f}%")
+    print(f"{'─'*55}")
+    print(f"\n✅ 结果已保存: {result_csv}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. 单实例模式
 # ─────────────────────────────────────────────────────────────────────────────
@@ -238,7 +304,7 @@ if __name__ == "__main__":
                         help="Phase 2 配置文件路径")
     parser.add_argument("--ckpt",          required=True,
                         help="模型权重路径（phase2_ppo_best.pth 或 resume.pth）")
-    parser.add_argument("--mode",          choices=["single", "benchmark"],
+    parser.add_argument("--mode",          choices=["single", "benchmark", "probe"],
                         default="benchmark")
     parser.add_argument("--task",          default=None,
                         help="[single 模式] 指定单个 task.csv 的路径")
@@ -262,6 +328,9 @@ if __name__ == "__main__":
         if not args.task:
             parser.error("--mode single 需要指定 --task 参数")
         init_task_path = args.task
+    elif args.mode == "probe":
+        first_n = sorted(glob.glob(os.path.join(data_dir, "probe", "N*")))[0]
+        init_task_path = sorted(glob.glob(os.path.join(first_n, "*_task.csv")))[0]
     else:
         first_n = sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*")))[0]
         init_task_path = sorted(glob.glob(os.path.join(first_n, "*_task.csv")))[0]
@@ -288,5 +357,7 @@ if __name__ == "__main__":
 
     if args.mode == "benchmark":
         run_benchmark(env, agent, data_dir, output_dir, args.save_schedule)
+    elif args.mode == "probe":
+        run_probe(env, agent, data_dir)
     else:
         run_single(env, agent, args.task, output_dir, args.save_schedule)

@@ -104,7 +104,8 @@ class TSNEnv(gym.Env):
         self.omega_4 = reward_cfg.get('failure', 0.0)       
         
         # Phase 1 模型版本标签，与 batch_infer 输出文件名一致
-        self.model_tag = env_params.get('emb_model_tag', '')
+        self.model_tag  = env_params.get('emb_model_tag', '')
+        self.n_clusters = env_params.get('n_clusters', 4)
 
         # [🌟 Embedding接入] 动态获取 embedding 维度
         self.phase1_embeddings = phase1_embeddings
@@ -193,8 +194,9 @@ class TSNEnv(gym.Env):
         # 🌟 新增：读取教导主任的分组表
         self.flow_groups = {} # 字典: {流ID: 组号}
         if task_file_path is not None:
-            tag_suffix = f"_{self.model_tag}" if self.model_tag else ""
-            group_csv_path = task_file_path.replace(".csv", f"{tag_suffix}_group.csv")
+            model_tag_str = f"_{self.model_tag}" if self.model_tag else ""
+            # group.csv 携带 n_clusters（不同 K 对应不同分组结果）
+            group_csv_path = task_file_path.replace(".csv", f"{model_tag_str}_c{self.n_clusters}_group.csv")
             if os.path.exists(group_csv_path):
                 df_group = pd.read_csv(group_csv_path)
                 # 假设 csv 里有 'stream_id' 和 'group_id' 两列
@@ -206,7 +208,8 @@ class TSNEnv(gym.Env):
         # 🌟 2. 新增：动态读取这张考卷专属的 Embedding 特征
         self.phase1_embeddings = {}
         if task_file_path is not None:
-            emb_pt_path = task_file_path.replace(".csv", f"{tag_suffix}_emb.pt")
+            # emb.pt 只与 GNN 模型有关，与 n_clusters 无关，不携带 _c{n} 后缀
+            emb_pt_path = task_file_path.replace(".csv", f"{model_tag_str}_emb.pt")
             if not os.path.exists(emb_pt_path):
                 raise FileNotFoundError(f"❌ Embedding 文件缺失，请先运行 batch_infer: {emb_pt_path}")
             self.phase1_embeddings = torch.load(emb_pt_path, map_location='cpu', weights_only=False)
@@ -230,40 +233,6 @@ class TSNEnv(gym.Env):
         """
         抽取物理世界的状态，包装成 Transformer 友好的 Tokens 和 Rasterized Window。
         """        
-        # ================= 🔍 照妖镜调试代码 =================
-        # 我们只在第一把游戏的第 1 步打印一次，防止刷屏
-        if not hasattr(self, 'debug_printed') and self.steps == 1:
-            print("\n" + "="*50)
-            print("🚀 [DEBUG INFO] 深入物理引擎底层探查！")
-            print(f"1. 当前设定的窗口大小 W: {self.W}")
-            print(f"2. 当前设定的时间槽 T_slot: {self.T_slot}")
-            
-            # 抽查第 0 条流的真实属性
-            f_test = self.flows[0]
-            print(f"3. 抽查流 0 的真实周期 (period): {f_test.period}")
-            # print(f"   (期望值：如果是 250us 且 T_slot=1000, 这里应该是 250！)")
-            print(f"4. 抽查流 0 的真实包大小 (size): {f_test.size}")
-            
-            # 抽查物理引擎已经排进去的真实区间
-            if self.physics_engine._result:
-                # 随便找一条有数据的边
-                sample_edge = list(self.physics_engine._result.keys())[0]
-                sample_intervals = self.physics_engine._result[sample_edge]
-                print(f"5. 物理引擎真实分配的区间示例 (边 {sample_edge}):")
-                print(f"   {sample_intervals[:5]} ...")
-                
-                # 检查有没有超出 W=2000 的区间被丢弃？
-                max_end_time = max([iv[1] for iv in sample_intervals]) if sample_intervals else 0
-                print(f"6. 当前这条边上，被分配的最晚结束时间: {max_end_time}")
-                if max_end_time > self.W:
-                    print("   🚨 [严重警告] 存在区间超出了 W=2000，Agent 的眼睛被蒙住了！")
-            else:
-                print("5. 当前没有任何流被排进去 (_result 为空)")
-                
-            print("="*50 + "\n")
-            self.debug_printed = True
-        # =====================================================
-        
         obs_tokens = []
         pending_flows = [i for i in range(self.num_flows) if self.flow_states[i]['status'] == 1]
         

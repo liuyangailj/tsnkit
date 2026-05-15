@@ -11,6 +11,10 @@ topo:
   sw_count: 15
   es_count:  31
 
+# v2 数据集子目录（大流量重训，与 v1 train/val 并列隔离）
+train_subdir_v2: "train_v2"
+val_subdir_v2:   "val_v2"
+
 task:
   # 训练集：11 档难度 × train_per_n 套/档
   train_flow_pool: [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200]
