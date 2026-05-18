@@ -11,7 +11,7 @@ from datetime import datetime # 用于日志时间戳
 import torch
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
-from torch.utils.tensorboard import SummaryWriter # 用于训练日志记录
+from torch.utils.tensorboard.writer import SummaryWriter # 用于训练日志记录
 
 from sca_drl.common.utils import (
     set_seed, load_config, resolve_path, get_device, ensure_dir

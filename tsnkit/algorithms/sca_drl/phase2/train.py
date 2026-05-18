@@ -10,7 +10,7 @@ import numpy as np
 from collections import defaultdict
 import torch
 from tsnkit import core as utils_tsnkit 
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 
 from datetime import datetime
 
