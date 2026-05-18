@@ -140,6 +140,16 @@ def serialize_schedule(physics, task_stem: str, output_dir: str) -> None:
 # 4. Benchmark 批量评估
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _read_n_groups(task_path: str, tag: str = "k5_d32_c4") -> int:
+    """从同目录的 _group.csv 读 unique cluster 数，文件不存在时返回 -1。"""
+    base      = task_path.replace("_task.csv", "")
+    group_csv = f"{base}_{tag}_group.csv"
+    if not os.path.exists(group_csv):
+        return -1
+    import pandas as pd
+    return pd.read_csv(group_csv)["group_id"].nunique()
+
+
 def _run_n_dirs(env: TSNEnv, agent: PPOAgent, n_dirs: list,
                 result_csv: str, output_dir: str, save_schedule: bool) -> None:
     """通用批量推理循环，被 benchmark 和 probe 共用。"""
@@ -149,8 +159,9 @@ def _run_n_dirs(env: TSNEnv, agent: PPOAgent, n_dirs: list,
     os.makedirs(output_dir, exist_ok=True)
     with open(result_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["N", "task_file", "n_flows", "n_scheduled",
-                         "schedulability", "time_s", "n_failed", "failed_ids"])
+        writer.writerow(["N", "instance_id", "success",
+                         "n_flows", "n_scheduled", "schedulability",
+                         "inference_time", "n_groups", "task_file"])
 
         for n_dir in n_dirs:
             n = int(os.path.basename(n_dir)[1:])
@@ -158,27 +169,36 @@ def _run_n_dirs(env: TSNEnv, agent: PPOAgent, n_dirs: list,
             sched_list, time_list = [], []
 
             for task_path in task_files:
-                stem = os.path.basename(task_path).replace(".csv", "")
+                stem        = os.path.basename(task_path).replace(".csv", "")
+                instance_id = int(stem.split("_")[0])   # "0001_task" → 1
                 sys.stdout.write(f"\r  N={n:3d} | {stem:<35s}")
                 sys.stdout.flush()
 
-                res = run_one(env, agent, task_path)
+                res     = run_one(env, agent, task_path)
+                success = 1 if res["n_scheduled"] == res["n_flows"] else 0
+
+                if res["failed_ids"]:
+                    n_failed = len(res["failed_ids"])
+                    print(f"\r  N={n:3d} | {stem} | fail={n_failed} "
+                          f"ids={res['failed_ids'][:5]}{'...' if n_failed > 5 else ''}")
 
                 if save_schedule and res["n_scheduled"] > 0:
                     serialize_schedule(res["physics"], stem, output_dir)
 
+                n_groups = _read_n_groups(task_path)
                 sched_list.append(res["schedulability"])
                 time_list.append(res["time_s"])
 
                 writer.writerow([
                     n,
-                    os.path.basename(task_path),
+                    instance_id,
+                    success,
                     res["n_flows"],
                     res["n_scheduled"],
                     f"{res['schedulability']:.4f}",
                     f"{res['time_s']:.4f}",
-                    len(res["failed_ids"]),
-                    ";".join(str(x) for x in res["failed_ids"]),
+                    n_groups,
+                    os.path.basename(task_path),
                 ])
                 f.flush()
 
@@ -191,13 +211,14 @@ def _run_n_dirs(env: TSNEnv, agent: PPOAgent, n_dirs: list,
 
 
 def run_benchmark(env: TSNEnv, agent: PPOAgent, data_dir: str,
-                  output_dir: str, save_schedule: bool) -> None:
-    """遍历 benchmark/N*/ 批量推理，输出 benchmark_results.csv。"""
-    n_dirs = sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*")))
+                  output_dir: str, save_schedule: bool,
+                  benchmark_subdir: str = "benchmark_v2") -> None:
+    """遍历 {benchmark_subdir}/N*/ 批量推理，输出 {benchmark_subdir}_results.csv。"""
+    n_dirs = sorted(glob.glob(os.path.join(data_dir, benchmark_subdir, "N*")))
     if not n_dirs:
-        print(f"❌ 未找到 benchmark 数据: {data_dir}/benchmark/N*/")
+        print(f"❌ 未找到 benchmark 数据: {data_dir}/{benchmark_subdir}/N*/")
         return
-    result_csv = os.path.join(output_dir, "benchmark_results.csv")
+    result_csv = os.path.join(output_dir, f"{benchmark_subdir}_results.csv")
     _run_n_dirs(env, agent, n_dirs, result_csv, output_dir, save_schedule)
 
 
@@ -312,6 +333,8 @@ if __name__ == "__main__":
                         help="输出目录（汇总 CSV 与调度文件的根目录）")
     parser.add_argument("--save_schedule", action="store_true",
                         help="是否输出 GCL/ROUTE/QUEUE/OFFSET 调度文件（默认：仅统计不存档）")
+    parser.add_argument("--benchmark_subdir", default="benchmark_v2",
+                        help="benchmark 子目录名（benchmark / benchmark_v2 等）")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -332,7 +355,7 @@ if __name__ == "__main__":
         first_n = sorted(glob.glob(os.path.join(data_dir, "probe", "N*")))[0]
         init_task_path = sorted(glob.glob(os.path.join(first_n, "*_task.csv")))[0]
     else:
-        first_n = sorted(glob.glob(os.path.join(data_dir, "benchmark", "N*")))[0]
+        first_n = sorted(glob.glob(os.path.join(data_dir, args.benchmark_subdir, "N*")))[0]
         init_task_path = sorted(glob.glob(os.path.join(first_n, "*_task.csv")))[0]
 
     init_task  = utils_tsnkit.load_stream(init_task_path)
@@ -356,7 +379,7 @@ if __name__ == "__main__":
     output_dir = resolve_path(args.output)
 
     if args.mode == "benchmark":
-        run_benchmark(env, agent, data_dir, output_dir, args.save_schedule)
+        run_benchmark(env, agent, data_dir, output_dir, args.save_schedule, args.benchmark_subdir)
     elif args.mode == "probe":
         run_probe(env, agent, data_dir)
     else:

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"D:/PY_Project/tsnkit\" diff --stat)",
+      "Bash(git -C \"D:/PY_Project/tsnkit\" status --short)"
+    ]
+  }
+}

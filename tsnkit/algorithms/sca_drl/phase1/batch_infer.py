@@ -93,6 +93,7 @@ def _infer_and_save(data, task_path, model, n_clusters, model_tag, device):
         embeddings = model(data).cpu().numpy()
 
     W      = compute_affinity_matrix(embeddings)
+    W      = (W + W.T) / 2   # 浮点误差可能导致微小非对称，显式对称化以消除 sklearn 警告
     sc     = SpectralClustering(n_clusters=n_clusters, affinity="precomputed", random_state=42)
     labels = sc.fit_predict(W)
 
@@ -122,6 +123,15 @@ def _collect_v2_files(data_dir, dc):
     for n_dir in sorted(glob.glob(os.path.join(data_dir, train_subdir, "N*"))):
         files.extend(sorted(glob.glob(os.path.join(n_dir, "*_task.csv"))))
     for n_dir in sorted(glob.glob(os.path.join(data_dir, val_subdir, "N*"))):
+        files.extend(sorted(glob.glob(os.path.join(n_dir, "*_task.csv"))))
+    return files
+
+
+def _collect_benchmark_v2_files(data_dir, dc):
+    """收集 benchmark_v2/N*/ 下的全部 task.csv。"""
+    subdir = dc.get("benchmark_v2", {}).get("subdir", "benchmark_v2")
+    files = []
+    for n_dir in sorted(glob.glob(os.path.join(data_dir, subdir, "N*"))):
         files.extend(sorted(glob.glob(os.path.join(n_dir, "*_task.csv"))))
     return files
 
@@ -215,6 +225,8 @@ def batch_inference(config_path="configs/phase1.yaml", probe=False, version="v1"
         print("🔬 Phase 1 -> Phase 2: 探针数据集桥接启动")
     elif version == "v2":
         print(f"🌉 Phase 1 -> Phase 2: v2 数据集桥接启动 (train_v2 + val_v2) [{workers} 进程]")
+    elif version == "benchmark_v2":
+        print(f"📊 Phase 1 -> Phase 2: benchmark_v2 桥接启动 [{workers} 进程]")
     else:
         print(f"🌉 Phase 1 -> Phase 2: 全量数据桥接工程启动 [{workers} 进程]")
     print("=" * 60)
@@ -287,6 +299,21 @@ def batch_inference(config_path="configs/phase1.yaml", probe=False, version="v1"
         print("=" * 60)
         return
 
+    if version == "benchmark_v2":
+        # ── benchmark_v2 模式：两阶段并行处理 benchmark_v2/N*/ ───────────────
+        bv2_files = _collect_benchmark_v2_files(data_dir, dc)
+        if not bv2_files:
+            print(f"❌ 未找到 benchmark_v2 数据，请先运行 data/generate_benchmark_v2.py")
+            return
+        print(f"📂 benchmark_v2 文件统计: {len(bv2_files)} 套\n")
+        t_start = time.time()
+        _run_two_stage(bv2_files, topo_path, k_paths, model, n_clusters,
+                       model_tag, device, workers, label="benchmark_v2")
+        total_elapsed = time.time() - t_start
+        print(f"\n🎉 benchmark_v2 推理完成！总耗时 {total_elapsed/60:.1f} 分钟")
+        print("=" * 60)
+        return
+
     # ── 常规 v1 模式：收集4组文件 ────────────────────────────────────────────
     train_large, train_small, val_files, bench_files = _collect_files(data_dir)
     print(f"📂 文件统计:")
@@ -335,8 +362,8 @@ if __name__ == "__main__":
     parser.add_argument("--config",  default="configs/phase1.yaml")
     parser.add_argument("--probe",   action="store_true",
                         help="只推理 probe/N*/ 探针数据集（串行）")
-    parser.add_argument("--version", default="v1", choices=["v1", "v2"],
-                        help="v2: 推理 train_v2/ + val_v2/，不影响 v1 数据")
+    parser.add_argument("--version", default="v1", choices=["v1", "v2", "benchmark_v2"],
+                        help="v2: 推理 train_v2/ + val_v2/；benchmark_v2: 推理 benchmark_v2/N*/")
     parser.add_argument("--workers", type=int, default=2,
                         help="阶段1并行建图进程数（默认2，probe模式无效）")
     args = parser.parse_args()
