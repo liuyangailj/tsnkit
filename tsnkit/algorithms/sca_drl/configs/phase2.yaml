@@ -42,9 +42,10 @@ agent:
     entropy_coef: 0.01        # 熵正则系数
 
 training:
-  total_iterations: 200       # 总训练轮数（每轮收集 episodes_per_iter 份考卷）
-  episodes_per_iter: 8        # 每轮收集的 episode 数量（考卷数量），过多可能内存压力大，过少可能学习不稳定
-  checkpoint_interval: 5      # 每 N 轮保存一次断点 resume.pth，0 = 不保存
+  total_iterations: 200     # 总训练轮数（每轮收集 episodes_per_iter 份考卷）
+  episodes_per_iter: 8      # 每轮收集的 episode 数量（考卷数量），过多可能内存压力大，过少可能学习不稳定
+  checkpoint_interval: 1    # 每 N 轮保存一次断点 resume.pth，0 = 不保存
+  val_interval: 10          # 每 N 轮跑一次验证集      
   checkpoint_path: "models/phase2_ppo.pth"
   curriculum:
     easy_ratio: 0.4                      # 前 40% 轮次为易段

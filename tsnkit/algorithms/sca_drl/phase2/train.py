@@ -65,6 +65,8 @@ def train(config, resume_path=None, version="v1"):
         for n_dir in sorted(glob.glob(os.path.join(data_dir, val_subdir, "N*"))):
             n = int(os.path.basename(n_dir)[1:])
             files = sorted(glob.glob(os.path.join(n_dir, "*_task.csv")))
+            if n == 480:
+                files = files[:10]  # N480 限10套，减少验证耗时（N320×20 + N400×20 + N480×10 = 50套）
             if files:
                 val_files_by_n[n] = files
         val_files = [f for files in val_files_by_n.values() for f in files]
@@ -138,7 +140,8 @@ def train(config, resume_path=None, version="v1"):
     train_cfg = config.get("training", {})
     total_iterations    = train_cfg.get("total_iterations", 200)
     episodes_per_iter   = train_cfg.get("episodes_per_iter", 8)
-    checkpoint_interval = train_cfg.get("checkpoint_interval", 10)
+    checkpoint_interval = train_cfg.get("checkpoint_interval", 1)
+    val_interval        = train_cfg.get("val_interval", 10)
 
     # 课程学习参数（从 yaml 读取，不再硬编码）
     curr_cfg    = train_cfg.get("curriculum", {})
@@ -256,13 +259,16 @@ def train(config, resume_path=None, version="v1"):
         # ==========================================
         # 🧪 阶段 B：验证模式 (Validation Loop) - 每 5 轮全量验证集
         # ==========================================
-        if iteration % 5 == 0 and val_files:
+        if iteration % val_interval == 0 and val_files:
             agent.network.eval()
             val_success_rates = []
             val_sr_by_n = defaultdict(list)   # 仅 v2 使用
+            n_val_total = len(val_files)
 
             with torch.no_grad():
-                for v_file in val_files:
+                for v_idx, v_file in enumerate(val_files):
+                    running_sr = np.mean(val_success_rates) * 100 if val_success_rates else 0.0
+                    print(f"\r  Val [{v_idx+1:2d}/{n_val_total}] {os.path.basename(v_file):<40} SR={running_sr:.1f}%", end="", flush=True)
                     v_task = utils_tsnkit.load_stream(v_file)
                     env.load_new_task(v_task, v_file)
                     obs, _ = env.reset()
@@ -288,7 +294,9 @@ def train(config, resume_path=None, version="v1"):
                                         break
                             break
 
+            print()  # 结束 \r 进度行
             avg_val_success = np.mean(val_success_rates) * 100
+            # 样本构成：N320×20 + N400×20 + N480×10 = 50套（N480截断以控制验证耗时）
             writer.add_scalar('Eval/1_Val_SR_Overall', avg_val_success, iteration)
 
             # v2 分档 TensorBoard
