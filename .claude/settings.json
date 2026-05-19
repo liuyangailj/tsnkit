@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python eval/verify_paths.py --n_show 3)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(python -u eval/verify_paths.py --n_show 3)",
+      "PowerShell(cd \"d:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\"; $result = python -c \"print\\('hello'\\)\" 2>&1; Write-Output \"ExitCode: $LASTEXITCODE\"; Write-Output \"Result: $result\")",
+      "Bash(python -c \"print\\('hello'\\)\")",
+      "Bash(tee /tmp/verify_out.txt)",
+      "Bash(cat /tmp/verify_out.txt)",
+      "Read(//tmp/**)",
+      "Bash(python -c ' *)",
+      "Bash(tee /tmp/test_out.txt)",
+      "Bash(python eval/verify_paths.py --n_show 5)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(cat /tmp/path_verify.txt)",
+      "Bash(Get-ChildItem -Path \"D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4\" -Recurse -Filter \"*.pt\")",
+      "Bash(Select-Object FullName, Length)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\" -Recurse | Where-Object { $_.Extension -in \".pt\", \".pkl\" } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\" -Recurse | Where-Object { $_.Name -match \"train_v4|val_v4\" -and $_.Extension -in \".pt\", \".pkl\" } | Select-Object FullName, @{N='MB';E={[math]::Round\\($_.Length/1MB,1\\)}})",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4\\\\N280\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB,1\\)}})",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\")",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4\")",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\val_v4\")",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4\\\\N280 | findstr /i .pt\")",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4 /s /b | findstr conflict.pkl\")",
+      "PowerShell(cmd /c \"dir D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\val_v4 /b\")",
+      "Bash(python -c \"import pickle; p = 'data/data_storm/fig10/val_v4/N320/0001_task_k5_d32_paths.pkl'; f = open\\(p, 'rb'\\); data = pickle.load\\(f\\); f.close\\(\\); first_sid = list\\(data.keys\\(\\)\\)[0]; first_path = data[first_sid][0]; print\\('Stream ID:', first_sid\\); print\\('First path:', first_path\\); print\\('Total streams:', len\\(data\\), 'paths for stream 0:', len\\(data[first_sid]\\)\\)\")",
+      "PowerShell(conda activate sca-drl)",
+      "PowerShell(python --version)",
+      "PowerShell(Get-Command python)",
+      "Bash(conda run *)",
+      "Read(//c/Users/1/miniconda3/envs/sca-drl/**)",
+      "Read(//c/Users/1/anaconda3/envs/sca-drl/**)",
+      "Read(//c/Users/1/**)",
+      "Bash(/c/Users/1/miniconda3/envs/sca-drl/python.exe -c ' *)"
+    ]
+  }
+}

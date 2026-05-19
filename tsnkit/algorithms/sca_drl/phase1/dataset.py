@@ -67,6 +67,7 @@ class TSNPhase1Dataset(Dataset):
         stream_ids = []
         periods = []
         stream_path_links = []
+        stream_path_nodes = {}  # {str(sid): [[n1,n2,...], ...]}，供 Phase2 env 直接复用
 
         for s in streams:
             target = s.dst[0] if isinstance(s.dst, list) else s.dst
@@ -81,10 +82,11 @@ class TSNPhase1Dataset(Dataset):
                 math.log(s.deadline + 1),
             ])
 
-            # K 最短路径 → 链路集合
+            # K 最短路径 → 链路集合（用于冲突图）+ 节点序列（供 Phase2 加载）
             paths = k_shortest_paths(graph_nx, s.src, target, self.k_paths)
             path_sets = [set(zip(p[:-1], p[1:])) for p in paths if len(p) >= 2]
             stream_path_links.append(path_sets)
+            stream_path_nodes[str(sid)] = [list(p) for p in paths]
 
         # 特征张量 & 标准化
         x = torch.tensor(x_list, dtype=torch.float)
@@ -98,6 +100,7 @@ class TSNPhase1Dataset(Dataset):
         data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
         data.stream_ids = stream_ids
         data.periods = torch.tensor(periods, dtype=torch.float)
+        data.raw_paths = stream_path_nodes  # KSP 节点序列，Phase2 env 加载路径用
         return data
 
     @staticmethod

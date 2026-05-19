@@ -46,6 +46,9 @@ def train(config, resume_path=None, version="v1"):
     if version == "v2":
         train_subdir = dc.get("train_subdir_v2", "train_v2")
         val_subdir   = dc.get("val_subdir_v2",   "val_v2")
+    elif version == "v4":
+        train_subdir = dc.get("train_subdir_v4", "train_v4")
+        val_subdir   = dc.get("val_subdir_v4",   "val_v4")
     else:
         train_subdir = "train"
         val_subdir   = "val"
@@ -59,14 +62,14 @@ def train(config, resume_path=None, version="v1"):
             train_files_by_n[n] = files
     all_n_values = sorted(train_files_by_n.keys())
 
-    # Val：v2 按 N 子目录分档，v1 平铺
+    # Val：v2/v4 按 N 子目录分档，v1 平铺
     val_files_by_n = {}
-    if version == "v2":
+    if version in ("v2", "v4"):
         for n_dir in sorted(glob.glob(os.path.join(data_dir, val_subdir, "N*"))):
             n = int(os.path.basename(n_dir)[1:])
             files = sorted(glob.glob(os.path.join(n_dir, "*_task.csv")))
-            if n == 480:
-                files = files[:10]  # N480 限10套，减少验证耗时（N320×20 + N400×20 + N480×10 = 50套）
+            if version == "v2" and n == 480:
+                files = files[:10]  # v2 N480 限10套（N320×20 + N400×20 + N480×10 = 50套）
             if files:
                 val_files_by_n[n] = files
         val_files = [f for files in val_files_by_n.values() for f in files]
@@ -286,8 +289,8 @@ def train(config, resume_path=None, version="v1"):
                         if terminated:
                             sr = float(info.get('group_success_rate', 0.0))
                             val_success_rates.append(sr)
-                            # v2：按 N 子目录分档记录
-                            if version == "v2" and val_files_by_n:
+                            # v2/v4：按 N 子目录分档记录
+                            if version in ("v2", "v4") and val_files_by_n:
                                 for n_val, files in val_files_by_n.items():
                                     if v_file in files:
                                         val_sr_by_n[n_val].append(sr)
@@ -301,7 +304,7 @@ def train(config, resume_path=None, version="v1"):
 
             # v2 分档 TensorBoard
             val_n_log = ""
-            if version == "v2" and val_sr_by_n:
+            if version in ("v2", "v4") and val_sr_by_n:
                 for n_val in sorted(val_sr_by_n):
                     n_sr = np.mean(val_sr_by_n[n_val]) * 100
                     key_idx = sorted(val_sr_by_n.keys()).index(n_val) + 2
@@ -341,8 +344,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Phase 2 PPO Training")
     parser.add_argument("--config",  default="configs/phase2.yaml", help="Path to config file")
     parser.add_argument("--resume",  default=None, help="断点续训: 传入 resume.pth 的路径")
-    parser.add_argument("--version", default="v1", choices=["v1", "v2"],
-                        help="v2: 使用 train_v2/val_v2 数据集与 v2 课程学习")
+    parser.add_argument("--version", default="v1", choices=["v1", "v2", "v4"],
+                        help="v4: train_v4/val_v4（推荐）；v2: train_v2/val_v2")
     args = parser.parse_args()
 
     cfg = load_config(args.config)

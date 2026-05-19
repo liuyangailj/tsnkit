@@ -1,4 +1,5 @@
 import os
+import pickle
 import pandas as pd
 import numpy as np
 import collections
@@ -6,11 +7,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import torch
 
-# 假设你的项目中可以通过以下方式导入 tsnkit 的 ls 算法类
-# 如果路径不同，请根据你的项目结构调整
-from tsnkit.algorithms.ls import ls 
-# 在 environment_ls_copy.py 的顶部 imports 区域加上：
+from tsnkit.algorithms.ls import ls
 from tsnkit.core._constants import T_SLOT
+from tsnkit.core._network import Path as TsnPath  # 用于从节点序列重建 Path 对象
 # from sca_drl.common.utils import resolve_path
 
 # =====================================================================
@@ -184,7 +183,21 @@ class TSNEnv(gym.Env):
         self.num_flows = len(self.flows)
         # 重新挂载物理引擎
         self.physics_engine = DRL_PhysicsEngine(self.task, self.topo)
-        
+
+        # 用 Phase1 dump 的 KSP 路径覆盖 task_routes，消除 DFS vs KSP 不一致
+        if task_file_path is not None:
+            _model_tag_str = f"_{self.model_tag}" if self.model_tag else ""
+            _paths_pkl = task_file_path.replace(".csv", f"{_model_tag_str}_paths.pkl")
+            if os.path.exists(_paths_pkl):
+                with open(_paths_pkl, "rb") as _pf:
+                    _raw = pickle.load(_pf)  # {str(sid): [[n1,n2,...], ...]}
+                self.physics_engine.task_routes = {
+                    s: [TsnPath(nodes, self.topo) for nodes in _raw.get(str(int(s)), [])]
+                    for s in self.task.streams
+                }
+            else:
+                print(f"⚠️ 路径文件缺失 {_paths_pkl}，task_routes 仍用 DFS 路径（Phase1/Phase2 不一致！）")
+
         # 重新计算归一化基准
         self.max_period = max([f.period for f in self.flows]) if self.flows else 1.0
         self.max_size = max([f.size for f in self.flows]) if self.flows else 1.0
