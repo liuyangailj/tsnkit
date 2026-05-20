@@ -33,7 +33,19 @@
       "Read(//c/Users/1/miniconda3/envs/sca-drl/**)",
       "Read(//c/Users/1/anaconda3/envs/sca-drl/**)",
       "Read(//c/Users/1/**)",
-      "Bash(/c/Users/1/miniconda3/envs/sca-drl/python.exe -c ' *)"
+      "Bash(/c/Users/1/miniconda3/envs/sca-drl/python.exe -c ' *)",
+      "Bash(Get-ChildItem -Path \"d:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\\" -Force | Select-Object Name, Mode)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(cd /d d:\\\\PY_Project\\\\tsnkit)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell(python -c \"import ast; ast.parse\\(open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell(py -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")",
+      "PowerShell(\\(Get-Command python\\).Source)",
+      "PowerShell(conda run -n tsnkit python -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")",
+      "PowerShell(conda env list)",
+      "PowerShell(conda run -n sca-drl python -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")"
     ]
   }
 }
