@@ -142,8 +142,7 @@ def serialize_schedule(physics, task_stem: str, output_dir: str) -> None:
 
 def _read_n_groups(task_path: str, tag: str = "k5_d32_c4") -> int:
     """从同目录的 _group.csv 读 unique cluster 数，文件不存在时返回 -1。"""
-    base      = task_path.replace("_task.csv", "")
-    group_csv = f"{base}_{tag}_group.csv"
+    group_csv = task_path.replace(".csv", f"_{tag}_group.csv")
     if not os.path.exists(group_csv):
         return -1
     import pandas as pd

@@ -181,22 +181,43 @@ def _build_graphs_parallel(pending_files, topo_path, k_paths, workers):
     print(f"   [阶段1] 并行建图 ({workers} 进程) — 共 {len(to_build)} 套待处理")
     t0 = time.time()
 
+    # 滑动窗口提交：窗口大小 = workers*2，保证队列不会被一次性塞满
+    # Ctrl+C 时只有窗口内的任务在跑，cancel_futures 能真正取消剩余任务
+    WINDOW = workers * 2
     executor = ProcessPoolExecutor(max_workers=workers)
     try:
-        futures = {executor.submit(_build_graph_worker, (f, topo_path, k_paths)): f
-                   for f in to_build}
-        for i, future in enumerate(as_completed(futures), 1):
-            task_path, pkl_path = future.result()
-            result[task_path] = pkl_path
-            elapsed = time.time() - t0
-            eta = elapsed / i * (len(to_build) - i) if i < len(to_build) else 0
-            sys.stdout.write(
-                f"\r   [{i:>4}/{len(to_build)}] {os.path.basename(task_path):<35}"
-                f" | {elapsed:5.0f}s | ETA {eta:5.0f}s"
-            )
-            sys.stdout.flush()
+        pending_queue = list(to_build)
+        active = {}   # {future: task_path}
+        i = 0
+
+        # 初始填满窗口
+        while pending_queue and len(active) < WINDOW:
+            f = pending_queue.pop(0)
+            active[executor.submit(_build_graph_worker, (f, topo_path, k_paths))] = f
+
+        while active:
+            for future in as_completed(active):
+                task_path = active.pop(future)
+                task_path, pkl_path = future.result()
+                result[task_path] = pkl_path
+                i += 1
+                elapsed = time.time() - t0
+                eta = elapsed / i * (len(to_build) - i) if i < len(to_build) else 0
+                sys.stdout.write(
+                    f"\r   [{i:>4}/{len(to_build)}] {os.path.basename(task_path):<35}"
+                    f" | {elapsed:5.0f}s | ETA {eta:5.0f}s"
+                )
+                sys.stdout.flush()
+                # 补充一个新任务进窗口
+                if pending_queue:
+                    f = pending_queue.pop(0)
+                    active[executor.submit(_build_graph_worker, (f, topo_path, k_paths))] = f
+                break  # 每次只处理一个完成的 future，回到外层 while 继续
     except KeyboardInterrupt:
         print("\n   [中断] 收到中断，正在停止子进程...")
+        # Windows spawn 模式：显式 terminate 正在运行的工作进程
+        for p in executor._processes.values():
+            p.terminate()
         executor.shutdown(wait=False, cancel_futures=True)
         raise
     finally:
