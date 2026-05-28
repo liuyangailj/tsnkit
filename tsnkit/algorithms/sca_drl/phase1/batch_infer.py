@@ -311,7 +311,7 @@ def _run_two_stage(files, topo_path, k_paths, model, n_clusters, model_tag,
     return done, skipped
 
 
-def batch_inference(config_path="configs/phase1.yaml", probe=False, version="v1", workers=2):
+def batch_inference(config_path="configs/phase1.yaml", probe=False, version="v1", workers=2, tag=""):
     print("=" * 60)
     if probe:
         print("🔬 Phase 1 -> Phase 2: 探针数据集桥接启动")
@@ -338,6 +338,8 @@ def batch_inference(config_path="configs/phase1.yaml", probe=False, version="v1"
     k_paths    = data_cfg.get("k_paths", 3)
     n_clusters = infer_cfg.get("n_clusters", 8)
     model_tag  = f"k{k_paths}_d{model_cfg['output_dim']}"
+    if tag:
+        model_tag = f"{model_tag}_{tag}"
     print(f"📦 模型版本标签: {model_tag}  n_clusters={n_clusters}")
 
     model = GNNPartitionModel(
@@ -485,5 +487,8 @@ if __name__ == "__main__":
                         help="v4: train_v4+val_v4（推荐）；benchmark_v4: 评测子目录")
     parser.add_argument("--workers", type=int, default=2,
                         help="阶段1并行建图进程数（默认2，probe模式无效）")
+    parser.add_argument("--tag", default="",
+                        help="model_tag 后缀（如 cng），生成 k5_d32_cng_* 文件，不覆盖已有文件")
     args = parser.parse_args()
-    batch_inference(args.config, probe=args.probe, version=args.version, workers=args.workers)
+    batch_inference(args.config, probe=args.probe, version=args.version,
+                    workers=args.workers, tag=args.tag)

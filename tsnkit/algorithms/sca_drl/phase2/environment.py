@@ -103,8 +103,10 @@ class TSNEnv(gym.Env):
         self.omega_4 = reward_cfg.get('failure', 0.0)       
         
         # Phase 1 模型版本标签，与 batch_infer 输出文件名一致
-        self.model_tag  = env_params.get('emb_model_tag', '')
-        self.n_clusters = env_params.get('n_clusters', 4)
+        self.model_tag   = env_params.get('emb_model_tag', '')
+        self.n_clusters  = env_params.get('n_clusters', 4)
+        # cluster_tag 决定加载哪个 group.csv 版本（默认 c{n_clusters}，均衡版传 c4bal）
+        self.cluster_tag = env_params.get('cluster_tag', f'c{self.n_clusters}')
 
         # [🌟 Embedding接入] 动态获取 embedding 维度
         self.phase1_embeddings = phase1_embeddings
@@ -208,8 +210,8 @@ class TSNEnv(gym.Env):
         self.flow_groups = {} # 字典: {流ID: 组号}
         if task_file_path is not None:
             model_tag_str = f"_{self.model_tag}" if self.model_tag else ""
-            # group.csv 携带 n_clusters（不同 K 对应不同分组结果）
-            group_csv_path = task_file_path.replace(".csv", f"{model_tag_str}_c{self.n_clusters}_group.csv")
+            # cluster_tag 决定加载哪个版本的 group.csv（c4=标准版，c4bal=均衡版等）
+            group_csv_path = task_file_path.replace(".csv", f"{model_tag_str}_{self.cluster_tag}_group.csv")
             if os.path.exists(group_csv_path):
                 df_group = pd.read_csv(group_csv_path)
                 # 假设 csv 里有 'stream_id' 和 'group_id' 两列

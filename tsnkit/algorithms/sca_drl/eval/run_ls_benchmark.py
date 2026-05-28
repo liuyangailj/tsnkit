@@ -61,7 +61,7 @@ PKL_TAG    = "_k5_d32"   # Phase1 模型标签，与 batch_infer 生成的文件
 # 核心推理（模块级，供 ProcessPoolExecutor 序列化）
 # ─────────────────────────────────────────────────────────────────────
 
-def _run_one(task_path: str, topo_path: str):
+def _run_one(task_path: str, topo_path: str, pkl_tag: str = "_k5_d32"):
     """单任务 LS 推理，返回供写入 CSV 的所有字段。
 
     路径来源（优先级）：
@@ -73,7 +73,7 @@ def _run_one(task_path: str, topo_path: str):
     solver.init(task_path, topo_path)
 
     # ── 路径加载 ──────────────────────────────────────────────────────
-    pkl_path = task_path.replace(".csv", f"{PKL_TAG}_paths.pkl")
+    pkl_path = task_path.replace(".csv", f"{pkl_tag}_paths.pkl")
     if os.path.exists(pkl_path):
         with open(pkl_path, "rb") as pf:
             raw = pickle.load(pf)  # {str(sid): [[n1,n2,...], ...]}
@@ -129,9 +129,9 @@ def _run_one(task_path: str, topo_path: str):
 
 def _worker(args):
     """ProcessPoolExecutor worker：包一层 perf_counter 计 inference_time。"""
-    n, instance_id, task_path, topo_path = args
+    n, instance_id, task_path, topo_path, pkl_tag = args
     t0   = time.perf_counter()
-    res  = _run_one(task_path, topo_path)
+    res  = _run_one(task_path, topo_path, pkl_tag)
     res["inference_time"] = time.perf_counter() - t0
     res["n"]              = n
     res["instance_id"]    = instance_id
@@ -157,7 +157,7 @@ def _fmt_time(seconds: float) -> str:
 def run_ls_benchmark(benchmark_subdir: str, output_dir: str,
                      n_min: int = 0, n_max: int = 999999,
                      sample_per_n: int = 0, seed: int = 42,
-                     workers: int = 4) -> None:
+                     workers: int = 4, pkl_tag: str = "_k5_d32") -> None:
     dc        = load_config("configs/data_config.yaml")
     data_dir  = resolve_path(dc["data_dir"])
     topo_path = os.path.join(data_dir, "0_topo.csv")
@@ -182,7 +182,7 @@ def run_ls_benchmark(benchmark_subdir: str, output_dir: str,
         for tf in task_files:
             stem        = os.path.basename(tf).replace(".csv", "")
             instance_id = int(stem.split("_")[0])
-            all_tasks.append((n, instance_id, tf, topo_path))
+            all_tasks.append((n, instance_id, tf, topo_path, pkl_tag))
 
     total = len(all_tasks)
     print(f"📊 {SOLVER_TAG} baseline — {benchmark_subdir}")
@@ -291,6 +291,8 @@ if __name__ == "__main__":
                         help="随机抽样种子（默认42）")
     parser.add_argument("--workers", type=int, default=4,
                         help="并行进程数（默认4，建议 <= 物理核数）")
+    parser.add_argument("--pkl_tag", default="_k5_d32",
+                        help="Phase1 路径文件标签（默认 _k5_d32，benchmark_v2 传 _k5_d32_cng）")
     parser.add_argument("--sleep", action="store_true",
                         help="运行完成后自动休眠（仅 Windows）")
     args = parser.parse_args()
@@ -301,6 +303,7 @@ if __name__ == "__main__":
         args.n_min, args.n_max,
         args.sample, args.seed,
         args.workers,
+        args.pkl_tag,
     )
 
     if args.sleep:

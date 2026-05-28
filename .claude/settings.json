@@ -45,7 +45,23 @@
       "PowerShell(\\(Get-Command python\\).Source)",
       "PowerShell(conda run -n tsnkit python -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")",
       "PowerShell(conda env list)",
-      "PowerShell(conda run -n sca-drl python -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")"
+      "PowerShell(conda run -n sca-drl python -c \"import ast; src = open\\('d:/PY_Project/tsnkit/tsnkit/algorithms/sca_drl/phase2/infer_with_fallback.py', encoding='utf-8'\\).read\\(\\); ast.parse\\(src\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import gurobipy as gp; m = gp.Model\\(\\); print\\('Gurobi OK, version:', gp.gurobi.version\\(\\)\\)\")",
+      "Bash(python -c \"import gurobipy as gp; m = gp.Model\\(\\); print\\('OK'\\)\")",
+      "Bash(echo \"exit:$?\")",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\" -Directory | Select-Object Name)",
+      "PowerShell(C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe -c \"import pulp; print\\('pulp', pulp.__version__\\)\" 2>&1)",
+      "PowerShell(C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe -c \"import mip; print\\('python-mip', mip.__version__\\)\" 2>&1)",
+      "PowerShell(C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe -m pip install python-mip 2>&1)",
+      "PowerShell(tail -5)",
+      "PowerShell(C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe -m pip install mip 2>&1)",
+      "Bash(Get-ChildItem -Path \"d:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\data\\\\data_storm\\\\fig10\\\\train_v4\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(python3 -)",
+      "PowerShell(& python --version)",
+      "PowerShell(& \"C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe\" --version)",
+      "PowerShell(& \"C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe\" \"d:\\\\PY_Project\\\\tsnkit\\\\_analyze_groups.py\")",
+      "PowerShell(& \"C:\\\\Users\\\\1\\\\miniconda3\\\\envs\\\\sca-drl\\\\python.exe\" -c \"import ast; ast.parse\\(open\\(r'D:\\\\PY_Project\\\\tsnkit\\\\tsnkit\\\\algorithms\\\\sca_drl\\\\eval\\\\compare_benchmark_v4.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

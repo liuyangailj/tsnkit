@@ -213,10 +213,18 @@ def run_one_with_fallback(env: TSNEnv, agent: PPOAgent, task_path: str) -> dict:
 
 def _run_n_dirs_with_fallback(env: TSNEnv, agent: PPOAgent, n_dirs: list,
                                result_csv: str, output_dir: str,
-                               save_schedule: bool) -> None:
-    """带 fallback 的批量推理主循环，integrity_ok=False 的实例不计入均值统计。"""
+                               save_schedule: bool,
+                               sample_per_n: int = 0, seed: int = 42,
+                               stop_on_all_fail: bool = False) -> None:
+    """带 fallback 的批量推理主循环，integrity_ok=False 的实例不计入均值统计。
+
+    sample_per_n    : 每档随机抽取套数（0 = 全跑）
+    stop_on_all_fail: True 时，若某档所有有效实例均失败则提前终止
+    """
+    import random as _random
     total = sum(len(glob.glob(os.path.join(d, "*_task.csv"))) for d in n_dirs)
-    print(f"📊 共 {len(n_dirs)} 档难度，{total} 套任务，开始 fallback 推理...\n")
+    sample_note = f"，每档抽 {sample_per_n} 套" if sample_per_n > 0 else ""
+    print(f"📊 共 {len(n_dirs)} 档难度，{total} 套任务{sample_note}，开始 fallback 推理...\n")
 
     os.makedirs(output_dir, exist_ok=True)
     with open(result_csv, "w", newline="", encoding="utf-8") as f:
@@ -232,7 +240,9 @@ def _run_n_dirs_with_fallback(env: TSNEnv, agent: PPOAgent, n_dirs: list,
         for n_dir in n_dirs:
             n = int(os.path.basename(n_dir)[1:])
             task_files   = sorted(glob.glob(os.path.join(n_dir, "*_task.csv")))
-            sched_list, time_list     = [], []
+            if sample_per_n > 0 and sample_per_n < len(task_files):
+                task_files = sorted(_random.Random(seed).sample(task_files, sample_per_n))
+            sched_list, time_list, success_list = [], [], []
             fb_path_sum, fb_defer_sum = 0, 0
 
             for task_path in task_files:
@@ -276,6 +286,7 @@ def _run_n_dirs_with_fallback(env: TSNEnv, agent: PPOAgent, n_dirs: list,
                 n_groups = _read_n_groups(task_path)
                 sched_list.append(res["schedulability"])
                 time_list.append(res["time_s"])
+                success_list.append(success)
                 fb_path_sum  += res["fallback_path_rescued"]
                 fb_defer_sum += res["fallback_deferred_rescued"]
 
@@ -306,20 +317,28 @@ def _run_n_dirs_with_fallback(env: TSNEnv, agent: PPOAgent, n_dirs: list,
                     f"  [{len(task_files)} 套]"
                 )
 
+                if stop_on_all_fail and success_list and sum(success_list) == 0:
+                    print(f"  [早停] N={n} 全部 {len(success_list)} 套失败，终止推理。")
+                    break
+
     print(f"\n✅ 汇总报告: {result_csv}")
 
 
 def run_benchmark_with_fallback(env: TSNEnv, agent: PPOAgent,
                                  data_dir: str, output_dir: str,
                                  save_schedule: bool,
-                                 benchmark_subdir: str = "benchmark_v2") -> None:
+                                 benchmark_subdir: str = "benchmark_v2",
+                                 sample_per_n: int = 0, seed: int = 42,
+                                 stop_on_all_fail: bool = False) -> None:
     """遍历 {benchmark_subdir}/N*/ 批量 fallback 推理，输出 *_fallback_results.csv。"""
     n_dirs = sorted(glob.glob(os.path.join(data_dir, benchmark_subdir, "N*")))
     if not n_dirs:
         print(f"❌ 未找到 benchmark 数据: {data_dir}/{benchmark_subdir}/N*/")
         return
     result_csv = os.path.join(output_dir, f"{benchmark_subdir}_fallback_results.csv")
-    _run_n_dirs_with_fallback(env, agent, n_dirs, result_csv, output_dir, save_schedule)
+    _run_n_dirs_with_fallback(env, agent, n_dirs, result_csv, output_dir, save_schedule,
+                               sample_per_n=sample_per_n, seed=seed,
+                               stop_on_all_fail=stop_on_all_fail)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,6 +393,16 @@ if __name__ == "__main__":
                         help="是否输出 GCL/ROUTE/QUEUE/OFFSET 调度文件")
     parser.add_argument("--benchmark_subdir", default="benchmark_v2",
                         help="benchmark 子目录名（benchmark / benchmark_v2 等）")
+    parser.add_argument("--emb_model_tag", default="",
+                        help="Phase1 文件命名标签（默认空=用 config 值，如 k5_d32_cng）")
+    parser.add_argument("--cluster_tag", default="",
+                        help="group.csv 版本标签（默认空=c{n_clusters}，均衡版传 c4bal）")
+    parser.add_argument("--sample_per_n", type=int, default=0,
+                        help="每档随机抽取套数（0=全跑，默认0）")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="抽样随机种子（默认42）")
+    parser.add_argument("--stop_on_all_fail", action="store_true",
+                        help="某档位全部有效实例失败时提前终止（默认：跑完所有档位）")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -394,9 +423,14 @@ if __name__ == "__main__":
         init_task_path = sorted(glob.glob(
             os.path.join(first_n, "*_task.csv")))[0]
 
-    init_task  = utils_tsnkit.load_stream(init_task_path)
+    init_task = utils_tsnkit.load_stream(init_task_path)
+    env_cfg   = cfg.get("environment", {}).copy()
+    if args.emb_model_tag:
+        env_cfg["emb_model_tag"] = args.emb_model_tag
+    if args.cluster_tag:
+        env_cfg["cluster_tag"] = args.cluster_tag
     env_config = {
-        "environment": cfg.get("environment", {}),
+        "environment": env_cfg,
         "task":        init_task,
         "task_file":   init_task_path,
         "topo":        topo,
@@ -404,6 +438,8 @@ if __name__ == "__main__":
 
     print("=" * 60)
     print("🚀 SCA-DRL Phase 2 Fallback 推理引擎启动")
+    if args.cluster_tag:
+        print(f"   cluster_tag: {args.cluster_tag}")
     print("=" * 60)
 
     env   = TSNEnv(env_config)
@@ -417,7 +453,9 @@ if __name__ == "__main__":
     if args.mode == "benchmark":
         run_benchmark_with_fallback(
             env, agent, data_dir, output_dir,
-            args.save_schedule, args.benchmark_subdir)
+            args.save_schedule, args.benchmark_subdir,
+            sample_per_n=args.sample_per_n, seed=args.seed,
+            stop_on_all_fail=args.stop_on_all_fail)
     else:
         run_single_with_fallback(
             env, agent, args.task, output_dir, args.save_schedule)
